@@ -42,10 +42,11 @@
     // Hardcoded folder ID for "04 - Personal / Health Concierge". Drive.file scope cannot
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
+    const CLAUDE_MODEL = "claude-sonnet-4-6";
 
     const TARGETS = {
-      high: { cal: 2228, protein: 178, carbs: 247, fat: 59 },
-      low:  { cal: 2228, protein: 178, carbs: 111, fat: 119 },
+      high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
+      low:  { cal: 2228, protein: 178, carbs: 111, fat: 119, fibre: 30 },
     };
     const isHighCarb = (d) => [0, 4].includes(d.getDay());
     const DOW   = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
@@ -243,6 +244,45 @@
       };
     };
 
+    // ───────────────────── DATA MIGRATION v3 ─────────────────────
+    const migratePantryFields = (pantry) =>
+      (pantry || []).map(p => {
+        if (p.name && p.category) return p;
+        return {
+          id: p.id,
+          category: p.category || p.cat || "PANTRY",
+          name: p.name || p.item || "",
+          quantity: p.quantity || p.qty || "",
+          status: p.status || "good",
+          expiry: p.expiry || "",
+          addedAt: p.addedAt || new Date().toISOString(),
+        };
+      }).filter(p => p.name);
+
+    const migrateGroceryFields = (grocery) =>
+      (grocery || []).map(g => {
+        if (g.name && typeof g.done === "boolean") return g;
+        return {
+          id: g.id,
+          store: g.store || "OTHER",
+          name: g.name || g.item || "",
+          done: typeof g.done === "boolean" ? g.done : !!g.checked,
+          section: g.section || g.sec || "",
+          estimatedPrice: g.estimatedPrice || g.est || "",
+          deal: g.deal || null,
+        };
+      }).filter(g => g.name);
+
+    const migrateToV3 = (data) => {
+      if (!data || data.schema_version === 3) return data;
+      return {
+        ...data,
+        schema_version: 3,
+        pantry: migratePantryFields(data.pantry),
+        grocery: migrateGroceryFields(data.grocery),
+      };
+    };
+
     // ───────────────────── MACRO CALC ─────────────────────
     const scaleMacros = (per100g, grams) => ({
       cal: round(per100g.cal * grams / 100),
@@ -253,16 +293,17 @@
 
     const sumLogged = (logs, date) => {
       const day = logs[date] || {};
-      let cal=0, protein=0, carbs=0, fat=0;
+      let cal=0, protein=0, carbs=0, fat=0, fibre=0;
       ["breakfast","lunch","dinner","snacks"].forEach(meal => {
         (day[meal] || []).forEach(e => {
           cal += e.cal || 0;
           protein += e.protein || 0;
           carbs += e.carbs || 0;
           fat += e.fat || 0;
+          fibre += e.fibre || 0;
         });
       });
-      return { cal: round(cal), protein: round(protein,1), carbs: round(carbs,1), fat: round(fat,1) };
+      return { cal: round(cal), protein: round(protein,1), carbs: round(carbs,1), fat: round(fat,1), fibre: round(fibre,1) };
     };
 
     // ───────────────────── SEARCH SCORING ─────────────────────
@@ -303,6 +344,7 @@
       const [foodPickerSlot, setFoodPickerSlot] = useState(null);
       const [data, setData] = useState({ version: 2, foods: [], logs: {}, grocery: [], pantry: [] });
       const [apiKey, setApiKey] = useState(localStorage.getItem("ant_api_key") || "");
+      const [selectedDate, setSelectedDate] = useState(isoToday());
       const saveTimer = useRef(null);
 
       // ─── Auth ───
@@ -344,11 +386,11 @@
           folderId = DRIVE_FOLDER_ID;
           fileId = await findOrCreateFile(DATA_FILENAME, folderId);
           const raw = await readDriveFile(fileId);
-          const migrated = migrateToV2(raw);
+          const v2 = migrateToV2(raw);
+          const migrated = migrateToV3(v2);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
           setData(migrated);
-          if (!raw || raw.version !== 2) {
-            // First-time migration: persist immediately
+          if (!raw || raw.version !== 2 || raw.schema_version !== 3) {
             await writeDriveFile(fileId, migrated);
           }
         } catch (e) {
@@ -386,10 +428,10 @@
         }
       };
 
-      // ─── Today helpers ───
+      // ─── Date helpers ───
       const today = isoToday();
-      const targets = isHighCarb(new Date()) ? TARGETS.high : TARGETS.low;
-      const totals = useMemo(() => sumLogged(data.logs, today), [data.logs, today]);
+      const targets = isHighCarb(new Date(selectedDate + "T12:00:00")) ? TARGETS.high : TARGETS.low;
+      const totals = useMemo(() => sumLogged(data.logs, selectedDate), [data.logs, selectedDate]);
 
       const openFoodPicker = (slot) => {
         setFoodPickerSlot(slot);
@@ -397,11 +439,11 @@
       };
 
       const logFood = (slot, entry) => {
-        const day = data.logs[today] || {};
+        const day = data.logs[selectedDate] || {};
         const meal = [...(day[slot] || []), entry];
         const next = {
           ...data,
-          logs: { ...data.logs, [today]: { ...day, [slot]: meal } },
+          logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } },
         };
         saveData(next);
       };
@@ -418,8 +460,7 @@
         return foods;
       };
 
-      const useFood = (slot, food, grams) => {
-        // Scale macros, log entry, update food's lastUsed/useCount
+      const useFood = (slot, food, grams, notes) => {
         const m = scaleMacros(food.per100g, grams);
         const entry = {
           id: uid("log"),
@@ -428,6 +469,7 @@
           brand: food.brand || "",
           grams,
           ...m,
+          ...(notes ? { notes } : {}),
           ts: new Date().toISOString(),
         };
         const updatedFood = {
@@ -436,12 +478,12 @@
           useCount: (food.useCount || 0) + 1,
         };
         const foods = upsertFood(updatedFood);
-        const day = data.logs[today] || {};
+        const day = data.logs[selectedDate] || {};
         const meal = [...(day[slot] || []), entry];
         saveData({
           ...data,
           foods,
-          logs: { ...data.logs, [today]: { ...day, [slot]: meal } },
+          logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } },
         });
       };
 
@@ -452,9 +494,9 @@
       };
 
       const deleteLogEntry = (slot, entryId) => {
-        const day = data.logs[today] || {};
+        const day = data.logs[selectedDate] || {};
         const meal = (day[slot] || []).filter(e => e.id !== entryId);
-        saveData({ ...data, logs: { ...data.logs, [today]: { ...day, [slot]: meal } } });
+        saveData({ ...data, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } } });
       };
 
       // ─── Render ───
@@ -498,7 +540,9 @@
 
           {/* Tabs content */}
           {tab === "today" && (
-            <TodayTab data={data} targets={targets} totals={totals} onAddFood={openFoodPicker} onDeleteEntry={deleteLogEntry} />
+            <TodayTab data={data} targets={targets} totals={totals}
+              selectedDate={selectedDate} today={today} onDateChange={setSelectedDate}
+              onAddFood={openFoodPicker} onDeleteEntry={deleteLogEntry} />
           )}
           {tab === "grocery" && (
             <GroceryTab data={data} setData={saveData} />
@@ -532,7 +576,7 @@
               apiKey={apiKey}
               onMissingKey={() => { setShowFoodPicker(false); setShowSettings(true); }}
               onClose={() => setShowFoodPicker(false)}
-              onLog={(food, grams) => { useFood(foodPickerSlot, food, grams); setShowFoodPicker(false); }}
+              onLog={(food, grams, notes) => { useFood(foodPickerSlot, food, grams, notes); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
             />
           )}
@@ -568,9 +612,33 @@
     }
 
     // ───────────────────── TODAY TAB ─────────────────────
-    function TodayTab({ data, targets, totals, onAddFood, onDeleteEntry }) {
-      const today = isoToday();
-      const day = data.logs[today] || {};
+    function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onDeleteEntry }) {
+      const day = data.logs[selectedDate] || {};
+      const isToday = selectedDate === today;
+
+      const selDateObj = new Date(selectedDate + "T12:00:00");
+      const todayObj = new Date(today + "T12:00:00");
+      const daysAgo = Math.round((todayObj - selDateObj) / 86400000);
+      const dayLabel = DOW[selDateObj.getDay()] + " · " + selDateObj.getDate() + " " + MONTH[selDateObj.getMonth()] + " " + selDateObj.getFullYear();
+
+      useEffect(() => {
+        const handler = (e) => {
+          if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+          if (e.key === "ArrowLeft") {
+            const d = new Date(selectedDate + "T12:00:00");
+            d.setDate(d.getDate() - 1);
+            onDateChange(d.toISOString().slice(0, 10));
+          }
+          if (e.key === "ArrowRight" && selectedDate < today) {
+            const d = new Date(selectedDate + "T12:00:00");
+            d.setDate(d.getDate() + 1);
+            onDateChange(d.toISOString().slice(0, 10));
+          }
+        };
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+      }, [selectedDate, today, onDateChange]);
+
       const meals = [
         { k: "breakfast", label: "BREAKFAST", icon: "☀️" },
         { k: "lunch",     label: "LUNCH",     icon: "🥗" },
@@ -578,8 +646,40 @@
         { k: "snacks",    label: "SNACKS",    icon: "🥜" },
       ];
 
+      const fibreTarget = targets.fibre || 30;
+      const fibrePct = Math.min(1, fibreTarget > 0 ? totals.fibre / fibreTarget : 0);
+      const fibreColor = totals.fibre >= fibreTarget ? S.green : totals.fibre >= 20 ? S.accent : S.red;
+
+      const hasAnyEntry = Object.values(day).some(arr => Array.isArray(arr) && arr.length > 0);
+
       return (
         <div style={{ padding:"16px 16px 24px" }}>
+          {/* Date navigation */}
+          <div style={{ display:"flex", alignItems:"center", background:S.panel, borderRadius:12, padding:"10px 4px", marginBottom:14, border:"1px solid "+S.border }}>
+            <button
+              onClick={() => { const d = new Date(selectedDate + "T12:00:00"); d.setDate(d.getDate()-1); onDateChange(d.toISOString().slice(0,10)); }}
+              style={{ background:"none", border:"none", color:S.text, fontSize:20, cursor:"pointer", padding:"4px 14px", lineHeight:1 }}>◀</button>
+            <div style={{ flex:1, textAlign:"center", position:"relative" }}>
+              <input
+                type="date"
+                value={selectedDate}
+                max={today}
+                onChange={e => e.target.value && onDateChange(e.target.value)}
+                style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%", height:"100%", zIndex:1 }}
+              />
+              <div style={{ pointerEvents:"none" }}>
+                <div style={{ fontSize:13, fontWeight:600, color:S.text }}>📅 {dayLabel}</div>
+                <div style={{ fontSize:10, marginTop:3, letterSpacing:1, color: isToday ? S.green : S.dim }}>
+                  {isToday ? "TODAY" : daysAgo === 1 ? "YESTERDAY" : "—" + daysAgo + " DAYS AGO"}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => { if (!isToday) { const d = new Date(selectedDate + "T12:00:00"); d.setDate(d.getDate()+1); onDateChange(d.toISOString().slice(0,10)); }}}
+              disabled={isToday}
+              style={{ background:"none", border:"none", color: isToday ? S.dimmer : S.text, fontSize:20, cursor: isToday ? "not-allowed" : "pointer", padding:"4px 14px", lineHeight:1 }}>▶</button>
+          </div>
+
           {/* Macro summary */}
           <div style={{ background:S.panel, borderRadius:14, padding:18, marginBottom:14, border:"1px solid "+S.border }}>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
@@ -591,7 +691,19 @@
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, marginTop:14, fontSize:11, color:S.dim, letterSpacing:0.5 }}>
               <div>{totals.cal} / {targets.cal} kcal</div>
               <div style={{ textAlign:"right" }}>
-                {targets.cal - totals.cal > 0 ? <span style={{ color: S.accent }}>{targets.cal - totals.cal} REMAINING</span> : <span style={{ color: S.red }}>+{Math.abs(targets.cal - totals.cal)} OVER</span>}
+                {targets.cal - totals.cal > 0
+                  ? <span style={{ color:S.accent }}>{targets.cal - totals.cal} REMAINING</span>
+                  : <span style={{ color:S.red }}>+{Math.abs(targets.cal - totals.cal)} OVER</span>}
+              </div>
+            </div>
+            {/* Fibre bar */}
+            <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid "+S.border }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                <div style={{ fontSize:10, letterSpacing:1.5, color:S.dim, fontWeight:700 }}>FIBRE</div>
+                <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:fibreColor }}>{totals.fibre}g / {fibreTarget}g</div>
+              </div>
+              <div style={{ height:6, background:S.panel2, borderRadius:3, overflow:"hidden" }}>
+                <div style={{ height:"100%", width:(fibrePct*100)+"%", background:fibreColor, borderRadius:3, transition:"width 0.4s" }} />
               </div>
             </div>
           </div>
@@ -618,21 +730,29 @@
                   </button>
                 </div>
                 {entries.map(e => (
-                  <div key={e.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"8px 0", borderTop:"1px solid "+S.border }}>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                        {e.name}
+                  <div key={e.id} style={{ padding:"8px 0", borderTop:"1px solid "+S.border }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace", letterSpacing:0.5 }}>
+                          {e.grams ? e.grams + "g · " : ""}{round(e.cal)} kcal · {round(e.protein,1)}P · {round(e.carbs,1)}C · {round(e.fat,1)}F
+                        </div>
+                        {e.notes && <div style={{ fontSize:11, color:S.dim, marginTop:3, fontStyle:"italic" }}>{e.notes}</div>}
                       </div>
-                      <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace", letterSpacing:0.5 }}>
-                        {e.grams ? e.grams + "g · " : ""}{round(e.cal)} kcal · {round(e.protein,1)}P · {round(e.carbs,1)}C · {round(e.fat,1)}F
-                      </div>
+                      <button onClick={() => onDeleteEntry(m.k, e.id)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"4px 8px" }}>×</button>
                     </div>
-                    <button onClick={() => onDeleteEntry(m.k, e.id)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"4px 8px" }}>×</button>
                   </div>
                 ))}
               </div>
             );
           })}
+
+          {/* Empty state */}
+          {!hasAnyEntry && (
+            <div style={{ padding:"32px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
+              {isToday ? "Log your first meal of the day." : "No entries for this day."}
+            </div>
+          )}
         </div>
       );
     }
@@ -708,7 +828,7 @@
                 food={selectedFood}
                 slot={slot}
                 onCancel={() => { setSelectedFood(null); setMode("search"); }}
-                onLog={(grams) => onLog(selectedFood, grams)}
+                onLog={(grams, notes) => onLog(selectedFood, grams, notes)}
               />
             )}
 
@@ -794,6 +914,7 @@
     // ───────────────────── PORTION ADJUST ─────────────────────
     function PortionAdjust({ food, slot, onCancel, onLog }) {
       const [grams, setGrams] = useState(food.refPortion?.grams || 100);
+      const [notes, setNotes] = useState("");
 
       const macros = scaleMacros(food.per100g, grams);
       const presets = [
@@ -869,7 +990,14 @@
             </div>
           </div>
 
-          <button onClick={() => onLog(grams)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+          <textarea
+            placeholder="Notes (optional)…"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={2}
+            style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
+          />
+          <button onClick={() => onLog(grams, notes.trim() || undefined)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
             LOG {grams}g
           </button>
         </div>
@@ -1000,7 +1128,7 @@
               "anthropic-dangerous-direct-browser-access": "true",
             },
             body: JSON.stringify({
-              model: "claude-sonnet-4-6",
+              model: CLAUDE_MODEL,
               max_tokens: 1500,
               messages: [{
                 role: "user",
@@ -1390,7 +1518,7 @@
               "anthropic-dangerous-direct-browser-access": "true",
             },
             body: JSON.stringify({
-              model: "claude-sonnet-4-6",
+              model: CLAUDE_MODEL,
               max_tokens: 2000,
               messages: [{
                 role: "user",
@@ -1619,7 +1747,7 @@
             </button>
 
             <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:S.dim, marginTop:14, textAlign:"center" }}>
-              v5.0 · FOOD LIBRARY · PORTION SCALING · MEAL SCAN
+              v6.0 · DATE NAV · FIBRE · NOTES · PANTRY FIX
             </div>
           </div>
         </div>
@@ -1673,7 +1801,7 @@
               "anthropic-dangerous-direct-browser-access": "true",
             },
             body: JSON.stringify({
-              model: "claude-sonnet-4-6",
+              model: CLAUDE_MODEL,
               max_tokens: 16000,
               messages: [{
                 role: "user",
