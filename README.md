@@ -1,43 +1,57 @@
-# Nutrition Concierge — v5.0 (patched, deployable)
+# Nutrition Concierge — v6.0
 
-Drop-in upgrade. Replace `index.html` and `manifest.json` in the GitHub repo; PWA reloads in ~30 seconds. No Google Cloud Console reauth required.
+Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
-## What's in v5
+**Live:** https://marianishawn-sys.github.io/health-dashboard/
 
-- **Food library** — ~75 pre-seeded foods keyed to your repertoire: venison stew, NY strip, free-run eggs, Grana Padano, Parmigiano Reggiano, sourdough, rainbow trout, Liberté Greek yogurt, oranges, kiwis, plus standard staples. All macros stored per 100 g so portions scale cleanly.
-- **Search-first food picker** — `+ ADD FOOD` opens an autofocused search. Results rank by text match then by your usage history. Most-used foods float to the top over time.
-- **Portion adjustment** — pick a food, set grams via ±25 g buttons, quick-portion presets, or direct entry. Macros recalculate live.
-- **AI meal scan** — point camera at a plate, sends to Claude Sonnet 4 with vision, returns identified foods with estimated grams. Each flows through portion-adjust so you can correct before logging. ~1¢ per scan.
-- **MFP import** — Settings → IMPORT MFP HISTORY. Upload a MyFitnessPal CSV/JSON export (the real one, not the Printable Diary PDF). Claude extracts foods, you review and select. Dedups against existing entries.
-- **Manual entry** — for anything the library doesn't have. Enter name, brand, reference portion, and macros for that portion; the app back-calculates per-100g.
+## What's in v6.0
 
-## What changed from the previous v5 draft
+- **Date navigation on Daily Tracker** — ◀ / date / ▶ row at the top of the Today tab. Tap the date to open a native calendar picker. ← / → arrow keys work on desktop. Future dates are blocked. Badge shows TODAY / YESTERDAY / —N DAYS AGO. All view, add, and delete operations apply to the selected date, so past entries are fully browsable and editable.
+- **Fibre bar** — 5th macro bar below the 4 rings. Target: 30 g/day. Red < 20 g · Gold 20–29 g · Green ≥ 30 g.
+- **Notes field** — optional textarea in the portion-adjust flow. Notes display in italic under each log entry.
+- **P0 pantry + grocery fix** — idempotent v2 → v3 schema migration renames the old fields (`cat → category`, `item → name`, `qty → quantity`, `checked → done`). Runs on load and persists to Drive. Sir's 27 pantry items and grocery list reappear correctly.
+- **CLAUDE_MODEL const** — model string extracted to a single constant; all 3 AI call sites use it.
+- **Empty state** — "Log your first meal of the day" on today with no entries; "No entries for this day" on past dates.
 
-Two bugs patched, both required for the build to work at all:
+## What was in v5.0
 
-1. **`CLIENT_ID`** — restored to the real Google OAuth client (`256298678690-…`). The previous draft had a fabricated ID that would fail sign-in immediately.
-2. **Folder lookup** — `drive.file` scope can only see files the app itself created, so searching for "Health Concierge" by name would silently create a new empty folder and orphan your existing v4 data. Replaced with hardcoded `DRIVE_FOLDER_ID` for `04 - Personal / Health Concierge`, plus a `KNOWN_DATA_FILE_ID` direct-fetch fallback so your existing `dashboard-data.json` from v4 is found reliably.
+- **Food library** — ~75 pre-seeded foods keyed to sir's repertoire, plus standard staples. All macros stored per 100 g so portions scale cleanly.
+- **Search-first food picker** — autofocused search; results rank by text match then usage history.
+- **Portion adjustment** — ±25 g buttons, quick-portion presets, direct entry. Macros recalculate live.
+- **AI meal scan** — photograph a plate → Claude vision → identified foods with estimated grams. ~1¢/scan.
+- **AI pantry scan** — single-item or bulk-shelf mode. Adds items directly to pantry.
+- **MFP import** — Settings → Import MFP History. Upload PDF export; Claude extracts foods and dedupes.
+- **Manual entry** — name, brand, reference portion, macros; app back-calculates per 100 g.
+- **Drive sync** — OAuth, bi-directional, debounced 1.2 s save.
 
-Net effect: v5 reads your existing v4 file, migrates it from schema v1 → v2 (adds the `foods` array, preserves logs/grocery/pantry intact), and writes the migrated version back on first load.
+## Schema versions
 
-## Schema migration
+| Version | When | Notes |
+|---------|------|-------|
+| v1 | original | bare logs/grocery/pantry |
+| v2 | v5 | adds `foods` array |
+| v3 | v6 | renames pantry/grocery fields; adds `schema_version: 3` |
 
-v4 data (schema v1) auto-migrates to v2 on first load. Old log entries (no `foodId`, no `grams`) coexist with new ones — they just won't be editable via portion-adjust, only deletable.
+Migrations are idempotent and run automatically on load.
 
 ## Deployment
 
-1. Replace `index.html` in the GitHub repo
-2. Replace `manifest.json` in the GitHub repo
-3. Commit, push, wait ~30 seconds for GitHub Pages rebuild
-4. On phone: pull-to-refresh the PWA, or remove and re-add to home screen if it caches stale
+```bash
+git add index.html
+git commit -m "vX.Y.Z: <summary>"
+git push origin main
+# GitHub Pages rebuilds in ~30 sec
+```
 
-## MFP import path (when Cowork export lands)
+On phone: hard-refresh the PWA, or remove and re-add to home screen if it serves stale cache.
 
-The Printable Diary PDF in Drive is numeric-only (food names stripped during print rendering) so it's not usable as-is. The right path:
+## Phases remaining (v6 spec)
 
-- **If you use Cowork to extract**: drop the extracted CSV/JSON in `04 - Personal / Health Concierge /`. Settings → IMPORT MFP HISTORY → pick the file. Ideal shape: `food_name, brand, grams, calories, protein, carbs, fat`. Looser shapes work too — the importer normalizes.
-- **If you go back to MFP directly**: myfitnesspal.com → Settings → Account Settings → Download Personal Data Archive → Request Data. CSV arrives by email within 24 hours; food names preserved.
+- **Phase 2** — Recipe Builder (log-once / save-to-library / save-to-library+Drive)
+- **Phase 3** — Weight log, 7-day rolling average, 30-day sparkline
+- **Phase 4** — Share Day (plain text + Web Share API)
+- **Phase 5** — Polish: edit log entry, swipe-to-delete, toast for missing API key, Today quick-jump
 
 ## Cost notes
 
-API calls use your existing key in localStorage. Pantry scan ~1¢, meal scan ~1¢, MFP import 5–15¢ one-time depending on size. Drive sync and the food library are free.
+API calls use the key stored in localStorage (`ant_api_key`). Pantry scan ~1¢, meal scan ~1¢, MFP import 5–15¢ one-time. Drive sync and food library are free.
