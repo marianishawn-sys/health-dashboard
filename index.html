@@ -670,6 +670,11 @@
     function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onRequestDelete, pendingDelete, onUndoDelete, onEditEntry }) {
       const day = data.logs[selectedDate] || {};
       const isToday = selectedDate === today;
+      const dateInputRef = useRef(null);
+      const openDatePicker = () => {
+        if (!dateInputRef.current) return;
+        try { dateInputRef.current.showPicker(); } catch(e) { dateInputRef.current.click(); }
+      };
 
       const selDateObj = new Date(selectedDate + "T12:00:00");
       const todayObj = new Date(today + "T12:00:00");
@@ -714,21 +719,21 @@
             <button
               onClick={() => { const d = new Date(selectedDate + "T12:00:00"); d.setDate(d.getDate()-1); onDateChange(d.toISOString().slice(0,10)); }}
               style={{ background:"none", border:"none", color:S.text, fontSize:20, cursor:"pointer", padding:"4px 14px", lineHeight:1 }}>◀</button>
-            <div style={{ flex:1, textAlign:"center", position:"relative" }}>
-              <input
-                type="date"
-                value={selectedDate}
-                max={today}
-                onChange={e => e.target.value && onDateChange(e.target.value)}
-                style={{ position:"absolute", inset:0, opacity:0, cursor:"pointer", width:"100%", height:"100%", zIndex:1 }}
-              />
-              <div style={{ pointerEvents:"none" }}>
-                <div style={{ fontSize:13, fontWeight:600, color:S.text }}>📅 {dayLabel}</div>
-                <div style={{ fontSize:10, marginTop:3, letterSpacing:1, color: isToday ? S.green : S.dim }}>
-                  {isToday ? "TODAY" : daysAgo === 1 ? "YESTERDAY" : "—" + daysAgo + " DAYS AGO"}
-                </div>
+            <button onClick={openDatePicker}
+              style={{ flex:1, textAlign:"center", background:"none", border:"none", cursor:"pointer", padding:"4px 0" }}>
+              <div style={{ fontSize:13, fontWeight:600, color:S.text }}>📅 {dayLabel}</div>
+              <div style={{ fontSize:10, marginTop:3, letterSpacing:1, color: isToday ? S.green : S.dim }}>
+                {isToday ? "TODAY" : daysAgo === 1 ? "YESTERDAY" : "—" + daysAgo + " DAYS AGO"}
               </div>
-            </div>
+            </button>
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={selectedDate}
+              max={today}
+              onChange={e => e.target.value && onDateChange(e.target.value)}
+              style={{ position:"absolute", width:1, height:1, opacity:0.01, pointerEvents:"none" }}
+            />
             <button
               onClick={() => { if (!isToday) { const d = new Date(selectedDate + "T12:00:00"); d.setDate(d.getDate()+1); onDateChange(d.toISOString().slice(0,10)); }}}
               disabled={isToday}
@@ -1307,6 +1312,7 @@
       const [image, setImage] = useState(null);
       const [results, setResults] = useState([]);
       const [error, setError] = useState("");
+      const cameraRef = useRef(null);
       const fileRef = useRef(null);
 
       useEffect(() => {
@@ -1421,10 +1427,16 @@
               <div style={{ fontSize:11, color:S.dim, marginBottom:24, lineHeight:1.5 }}>
                 AI identifies food and macros. About 1¢ per scan.
               </div>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display:"none" }} />
-              <button onClick={() => fileRef.current && fileRef.current.click()} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
-                📷 OPEN CAMERA
-              </button>
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display:"none" }} />
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }} />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <button onClick={() => cameraRef.current && cameraRef.current.click()} style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
+                  📷 CAMERA
+                </button>
+                <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background:S.panel, color:S.text, border:"1px solid "+S.border, borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
+                  🖼️ UPLOAD
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -1702,6 +1714,7 @@
       const [results, setResults] = useState([]);
       const [error, setError] = useState("");
       const fileRef = useRef(null);
+      const cameraRef = useRef(null);
 
       const handleFile = (e) => {
         const f = e.target.files && e.target.files[0];
@@ -1780,10 +1793,16 @@
               <div style={{ fontSize:11, color:S.dim, marginBottom:24, lineHeight:1.5 }}>
                 {mode === "single" ? "AI reads the label and captures details" : "AI identifies every visible item"}
               </div>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display:"none" }} />
-              <button onClick={() => fileRef.current && fileRef.current.click()} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
-                📷 OPEN CAMERA
-              </button>
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display:"none" }} />
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }} />
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <button onClick={() => cameraRef.current && cameraRef.current.click()} style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
+                  📷 CAMERA
+                </button>
+                <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background:S.panel, color:S.text, border:"1px solid "+S.border, borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
+                  🖼️ UPLOAD
+                </button>
+              </div>
             </div>
           </div>
         );
