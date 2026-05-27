@@ -1214,6 +1214,69 @@
       const [refProtein, setRefProtein] = useState("");
       const [refCarbs, setRefCarbs] = useState("");
       const [refFat, setRefFat] = useState("");
+      const [refFibre, setRefFibre] = useState("");
+
+      const [searchQ, setSearchQ] = useState("");
+      const [searching, setSearching] = useState(false);
+      const [searchResults, setSearchResults] = useState(null); // null=idle, []=no results
+      const [searchErr, setSearchErr] = useState("");
+
+      const OFF_CACHE_PREFIX = "off_cache_";
+
+      const doSearch = async () => {
+        const q = searchQ.trim();
+        if (!q) return;
+        setSearching(true);
+        setSearchErr("");
+        setSearchResults(null);
+        try {
+          const cacheKey = OFF_CACHE_PREFIX + q.toLowerCase();
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            setSearchResults(JSON.parse(cached));
+            setSearching(false);
+            return;
+          }
+          const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+            encodeURIComponent(q) + "&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments";
+          const res = await fetch(url);
+          if (!res.ok) throw new Error("Network error");
+          const json = await res.json();
+          const results = (json.products || [])
+            .filter(p => p.product_name && p.nutriments && p.nutriments["energy-kcal_100g"] != null)
+            .slice(0, 5)
+            .map(p => ({
+              name: p.product_name,
+              brand: p.brands || "",
+              cal: Math.round(p.nutriments["energy-kcal_100g"] || 0),
+              protein: round(p.nutriments["proteins_100g"] || 0, 1),
+              carbs: round(p.nutriments["carbohydrates_100g"] || 0, 1),
+              fat: round(p.nutriments["fat_100g"] || 0, 1),
+              fibre: round(p.nutriments["fiber_100g"] || p.nutriments["fibre_100g"] || 0, 1),
+            }));
+          localStorage.setItem(cacheKey, JSON.stringify(results));
+          setSearchResults(results);
+        } catch(e) {
+          setSearchErr("Search failed — check connection");
+        }
+        setSearching(false);
+      };
+
+      const applyResult = (r) => {
+        setName(r.name);
+        setBrand(r.brand);
+        setRefGrams(100);
+        setRefDisplayQty(100);
+        setRefUnit("g");
+        setRefLabel("100g");
+        setRefCal(String(r.cal));
+        setRefProtein(String(r.protein));
+        setRefCarbs(String(r.carbs));
+        setRefFat(String(r.fat));
+        setRefFibre(String(r.fibre));
+        setSearchResults(null);
+        setSearchQ("");
+      };
 
       const valid = name.trim() && refGrams > 0 && (refCal || refProtein || refCarbs || refFat);
 
@@ -1223,11 +1286,13 @@
         const protein = parseFloat(refProtein) || 0;
         const carbs = parseFloat(refCarbs) || 0;
         const fat = parseFloat(refFat) || 0;
+        const fibre = parseFloat(refFibre) || 0;
         const per100g = {
           cal: round(cal * 100 / refGrams),
           protein: round(protein * 100 / refGrams, 1),
           carbs: round(carbs * 100 / refGrams, 1),
           fat: round(fat * 100 / refGrams, 1),
+          fibre: round(fibre * 100 / refGrams, 1),
         };
         const food = {
           id: uid("f"),
@@ -1251,6 +1316,43 @@
           </div>
 
           <div style={{ flex:1, overflowY:"auto", paddingBottom:14, maxHeight:"calc(90vh - 100px)" }}>
+
+            {/* ── Internet search ── */}
+            <div style={{ marginBottom:14 }}>
+              <label style={{ display:"block", fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:4 }}>SEARCH OPEN FOOD FACTS</label>
+              <div style={{ display:"flex", gap:8 }}>
+                <input
+                  type="text"
+                  value={searchQ}
+                  onChange={e => setSearchQ(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && doSearch()}
+                  placeholder="e.g., Greek yogurt"
+                  style={{ flex:1, background:S.panel, border:"1px solid "+S.border, borderRadius:8, padding:"11px 12px", color:S.text, fontSize:14, outline:"none" }}
+                />
+                <button onClick={doSearch} disabled={searching || !searchQ.trim()} style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"0 16px", fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>
+                  {searching ? "…" : "🔍"}
+                </button>
+              </div>
+              {searchErr && <div style={{ fontSize:11, color:S.red, marginTop:6 }}>{searchErr}</div>}
+              {searchResults !== null && searchResults.length === 0 && (
+                <div style={{ fontSize:11, color:S.dim, marginTop:6 }}>No results — fill in manually below</div>
+              )}
+              {searchResults && searchResults.length > 0 && (
+                <div style={{ marginTop:8, border:"1px solid "+S.border, borderRadius:10, overflow:"hidden" }}>
+                  {searchResults.map((r, i) => (
+                    <button key={i} onClick={() => applyResult(r)} style={{ display:"block", width:"100%", background: i % 2 === 0 ? S.panel : S.panel2, border:"none", borderBottom: i < searchResults.length-1 ? "1px solid "+S.border : "none", padding:"10px 12px", textAlign:"left", cursor:"pointer" }}>
+                      <div style={{ fontSize:13, color:S.text, fontWeight:600, marginBottom:2 }}>{r.name}{r.brand ? <span style={{ fontWeight:400, color:S.dim }}> · {r.brand}</span> : ""}</div>
+                      <div style={{ fontSize:10, color:S.dim, letterSpacing:0.5 }}>
+                        {r.cal} kcal · {r.protein}g P · {r.carbs}g C · {r.fat}g F{r.fibre ? " · "+r.fibre+"g fibre" : ""} <span style={{ color:S.dimmer }}>per 100g</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ borderTop:"1px solid "+S.border, marginBottom:14 }} />
+
             <Field label="NAME *" value={name} setValue={setName} placeholder="e.g., Tuscan kale salad" />
             <Field label="BRAND" value={brand} setValue={setBrand} placeholder="optional" />
             <div style={{ marginBottom:8 }}>
@@ -1276,11 +1378,14 @@
             <div style={{ fontSize:10, color:S.dim, marginBottom:8, letterSpacing:1 }}>
               MACROS FOR {refGrams}g
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:14 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:6 }}>
               <Field compact label="KCAL" value={refCal} setValue={setRefCal} type="number" />
               <Field compact label="P (g)" value={refProtein} setValue={setRefProtein} type="number" />
               <Field compact label="C (g)" value={refCarbs} setValue={setRefCarbs} type="number" />
               <Field compact label="F (g)" value={refFat} setValue={setRefFat} type="number" />
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <Field compact label="FIBRE (g)" value={refFibre} setValue={setRefFibre} type="number" />
             </div>
             <button onClick={submit} disabled={!valid} style={{ width:"100%", background: valid ? S.accent : S.panel2, color: valid ? "#0a0c0f" : S.dim, border:"none", borderRadius:12, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor: valid ? "pointer" : "not-allowed" }}>
               SAVE & CHOOSE PORTION
