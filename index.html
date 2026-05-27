@@ -64,6 +64,13 @@
     const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
     const round = (n, d=0) => { const f = Math.pow(10,d); return Math.round(n*f)/f; };
 
+    const G_PER_OZ = 28.3495;
+    const G_PER_LB = 453.592;
+    const unitToGrams = (qty, unit) =>
+      unit === "oz" ? Math.round(qty * G_PER_OZ) : unit === "lb" ? Math.round(qty * G_PER_LB) : Math.round(qty);
+    const gramsToUnit = (g, unit) =>
+      unit === "oz" ? round(g / G_PER_OZ, 1) : unit === "lb" ? round(g / G_PER_LB, 1) : Math.round(g);
+
     // ───────────────────── PRE-SEED FOOD LIBRARY ─────────────────────
     // Per-100g unless otherwise indicated. Sources: USDA + commodity averages.
     const SEED_FOODS = [
@@ -345,6 +352,8 @@
       const [data, setData] = useState({ version: 2, foods: [], logs: {}, grocery: [], pantry: [] });
       const [apiKey, setApiKey] = useState(localStorage.getItem("ant_api_key") || "");
       const [selectedDate, setSelectedDate] = useState(isoToday());
+      const [editEntry, setEditEntry] = useState(null);   // { entry, slot } | null
+      const [pendingDelete, setPendingDelete] = useState(null); // { entry, slot, date, timeoutId } | null
       const saveTimer = useRef(null);
 
       // ─── Auth ───
@@ -460,7 +469,7 @@
         return foods;
       };
 
-      const useFood = (slot, food, grams, notes) => {
+      const useFood = (slot, food, grams, notes, preferredUnit) => {
         const m = scaleMacros(food.per100g, grams);
         const entry = {
           id: uid("log"),
@@ -468,6 +477,7 @@
           name: food.name,
           brand: food.brand || "",
           grams,
+          ...(preferredUnit ? { displayQty: gramsToUnit(grams, preferredUnit), displayUnit: preferredUnit } : {}),
           ...m,
           ...(notes ? { notes } : {}),
           ts: new Date().toISOString(),
@@ -476,6 +486,7 @@
           ...food,
           lastUsed: new Date().toISOString(),
           useCount: (food.useCount || 0) + 1,
+          ...(preferredUnit ? { preferredUnit } : {}),
         };
         const foods = upsertFood(updatedFood);
         const day = data.logs[selectedDate] || {};
@@ -493,10 +504,41 @@
         return newFood;
       };
 
-      const deleteLogEntry = (slot, entryId) => {
+      const removeLogEntry = (slot, entryId) => {
         const day = data.logs[selectedDate] || {};
         const meal = (day[slot] || []).filter(e => e.id !== entryId);
         saveData({ ...data, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } } });
+      };
+
+      const requestDelete = (slot, entry) => {
+        removeLogEntry(slot, entry.id);
+        setPendingDelete(prev => {
+          if (prev) clearTimeout(prev.timeoutId);
+          const timeoutId = setTimeout(() => setPendingDelete(null), 5000);
+          return { entry, slot, date: selectedDate, timeoutId };
+        });
+      };
+
+      const undoDelete = () => {
+        setPendingDelete(prev => {
+          if (!prev) return null;
+          clearTimeout(prev.timeoutId);
+          const { entry, slot, date } = prev;
+          const day = data.logs[date] || {};
+          const meal = [...(day[slot] || []), entry].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+          saveData({ ...data, logs: { ...data.logs, [date]: { ...day, [slot]: meal } } });
+          return null;
+        });
+      };
+
+      const saveEditedEntry = (slot, entryId, updates, preferredUnit, foodId) => {
+        const day = data.logs[selectedDate] || {};
+        const meal = (day[slot] || []).map(e => e.id === entryId ? { ...e, ...updates } : e);
+        let foods = data.foods;
+        if (preferredUnit !== undefined && foodId) {
+          foods = data.foods.map(f => f.id === foodId ? { ...f, preferredUnit } : f);
+        }
+        saveData({ ...data, foods, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } } });
       };
 
       // ─── Render ───
@@ -542,7 +584,9 @@
           {tab === "today" && (
             <TodayTab data={data} targets={targets} totals={totals}
               selectedDate={selectedDate} today={today} onDateChange={setSelectedDate}
-              onAddFood={openFoodPicker} onDeleteEntry={deleteLogEntry} />
+              onAddFood={openFoodPicker}
+              onRequestDelete={requestDelete} pendingDelete={pendingDelete} onUndoDelete={undoDelete}
+              onEditEntry={(entry, slot) => setEditEntry({ entry, slot })} />
           )}
           {tab === "grocery" && (
             <GroceryTab data={data} setData={saveData} />
@@ -576,7 +620,7 @@
               apiKey={apiKey}
               onMissingKey={() => { setShowFoodPicker(false); setShowSettings(true); }}
               onClose={() => setShowFoodPicker(false)}
-              onLog={(food, grams, notes) => { useFood(foodPickerSlot, food, grams, notes); setShowFoodPicker(false); }}
+              onLog={(food, grams, notes, preferredUnit) => { useFood(foodPickerSlot, food, grams, notes, preferredUnit); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
             />
           )}
@@ -590,6 +634,17 @@
               onSaveKey={saveApiKey}
               onSignOut={signOut}
               onForceSync={() => saveData(data)}
+            />
+          )}
+
+          {editEntry && (
+            <EditEntryModal
+              entry={editEntry.entry}
+              slot={editEntry.slot}
+              data={data}
+              onSave={saveEditedEntry}
+              onDelete={(slot, id) => { removeLogEntry(slot, id); setEditEntry(null); }}
+              onClose={() => setEditEntry(null)}
             />
           )}
         </div>
@@ -612,7 +667,7 @@
     }
 
     // ───────────────────── TODAY TAB ─────────────────────
-    function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onDeleteEntry }) {
+    function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onRequestDelete, pendingDelete, onUndoDelete, onEditEntry }) {
       const day = data.logs[selectedDate] || {};
       const isToday = selectedDate === today;
 
@@ -680,6 +735,14 @@
               style={{ background:"none", border:"none", color: isToday ? S.dimmer : S.text, fontSize:20, cursor: isToday ? "not-allowed" : "pointer", padding:"4px 14px", lineHeight:1 }}>▶</button>
           </div>
 
+          {/* Undo delete toast */}
+          {pendingDelete && (
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"rgba(248,113,113,0.1)", border:"1px solid rgba(248,113,113,0.3)", borderRadius:10, padding:"10px 14px", marginBottom:10 }}>
+              <span style={{ fontSize:12, color:S.dim }}>Entry deleted.</span>
+              <button onClick={onUndoDelete} style={{ background:"none", border:`1px solid ${S.accent}`, color:S.accent, padding:"5px 12px", borderRadius:8, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>UNDO</button>
+            </div>
+          )}
+
           {/* Macro summary */}
           <div style={{ background:S.panel, borderRadius:14, padding:18, marginBottom:14, border:"1px solid "+S.border }}>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
@@ -729,17 +792,22 @@
                     + ADD FOOD
                   </button>
                 </div>
-                {entries.map(e => (
-                  <div key={e.id} style={{ padding:"8px 0", borderTop:"1px solid "+S.border }}>
+                {entries.filter(e => !(pendingDelete && pendingDelete.entry.id === e.id)).map(e => (
+                  <div key={e.id} onClick={() => onEditEntry(e, m.k)}
+                    style={{ padding:"8px 0", borderTop:"1px solid "+S.border, cursor:"pointer" }}>
                     <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{e.name}</div>
                         <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace", letterSpacing:0.5 }}>
-                          {e.grams ? e.grams + "g · " : ""}{round(e.cal)} kcal · {round(e.protein,1)}P · {round(e.carbs,1)}C · {round(e.fat,1)}F
+                          {e.displayQty && e.displayUnit
+                            ? e.displayQty + " " + e.displayUnit
+                            : (e.grams ? e.grams + "g" : "")}
+                          {" · "}{round(e.cal)} kcal · {round(e.protein,1)}P · {round(e.carbs,1)}C · {round(e.fat,1)}F
                         </div>
                         {e.notes && <div style={{ fontSize:11, color:S.dim, marginTop:3, fontStyle:"italic" }}>{e.notes}</div>}
                       </div>
-                      <button onClick={() => onDeleteEntry(m.k, e.id)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"4px 8px" }}>×</button>
+                      <button onClick={ev => { ev.stopPropagation(); onRequestDelete(m.k, e); }}
+                        style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"4px 8px" }}>×</button>
                     </div>
                   </div>
                 ))}
@@ -828,7 +896,7 @@
                 food={selectedFood}
                 slot={slot}
                 onCancel={() => { setSelectedFood(null); setMode("search"); }}
-                onLog={(grams, notes) => onLog(selectedFood, grams, notes)}
+                onLog={(grams, notes, preferredUnit) => onLog(selectedFood, grams, notes, preferredUnit)}
               />
             )}
 
@@ -911,12 +979,136 @@
       );
     }
 
+    // ───────────────────── UNIT SELECTOR ─────────────────────
+    function UnitSelector({ unit, onChange }) {
+      return (
+        <div style={{ display:"flex", gap:4 }}>
+          {["g","oz","lb"].map(u => (
+            <button key={u} onClick={() => onChange(u)}
+              style={{ flex:1, padding:"8px 4px", background: unit===u ? `${S.accent}22` : S.panel2,
+                border:`1px solid ${unit===u ? S.accent : S.border}`, color: unit===u ? S.accent : S.dim,
+                borderRadius:8, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+              {u}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    // ───────────────────── EDIT ENTRY MODAL ─────────────────────
+    function EditEntryModal({ entry, slot, data, onSave, onDelete, onClose }) {
+      const food = data.foods.find(f => f.id === entry.foodId);
+      const initUnit = entry.displayUnit || food?.preferredUnit || "g";
+      const [unit, setUnit] = useState(initUnit);
+      const [grams, setGrams] = useState(entry.grams || 100);
+      const [notes, setNotes] = useState(entry.notes || "");
+
+      const displayQty = gramsToUnit(grams, unit);
+
+      const macros = useMemo(() => {
+        if (food?.per100g) return scaleMacros(food.per100g, grams);
+        // Proportional scaling from stored entry macros
+        const ratio = entry.grams > 0 ? grams / entry.grams : 1;
+        return {
+          cal: round((entry.cal || 0) * ratio),
+          protein: round((entry.protein || 0) * ratio, 1),
+          carbs: round((entry.carbs || 0) * ratio, 1),
+          fat: round((entry.fat || 0) * ratio, 1),
+        };
+      }, [food, grams, entry]);
+
+      const handleSave = () => {
+        const preferredUnit = unit !== "g" ? unit : null;
+        onSave(slot, entry.id, {
+          grams,
+          ...(unit !== "g" ? { displayQty, displayUnit: unit } : { displayQty: undefined, displayUnit: undefined }),
+          notes: notes.trim() || undefined,
+          ...macros,
+          ts: entry.ts, // preserve original timestamp
+        }, preferredUnit, entry.foodId);
+        onClose();
+      };
+
+      return (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:200, display:"flex", flexDirection:"column", paddingTop:"env(safe-area-inset-top)" }} onClick={onClose}>
+          <div className="slideUp" style={{ background:S.bg, marginTop:"auto", borderTopLeftRadius:18, borderTopRightRadius:18, padding:"16px 16px 24px", maxHeight:"90vh", overflowY:"auto", borderTop:"1px solid "+S.border }} onClick={e => e.stopPropagation()}>
+            <div style={{ width:40, height:4, background:S.dimmer, borderRadius:2, margin:"0 auto 12px" }} />
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, textAlign:"center", marginBottom:14 }}>EDIT ENTRY · {slot ? slot.toUpperCase() : ""}</div>
+
+            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:12, marginBottom:14 }}>
+              <div style={{ fontSize:14, fontWeight:500, color:S.text }}>{entry.name}</div>
+              {entry.brand && <div style={{ fontSize:11, color:S.dim, marginTop:2 }}>{entry.brand}</div>}
+            </div>
+
+            {/* Portion */}
+            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>PORTION</div>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <button onClick={() => setGrams(g => Math.max(1, g - 25))}
+                  style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>−25g</button>
+                <input
+                  type="number" inputMode="decimal"
+                  value={displayQty}
+                  onChange={e => setGrams(Math.max(1, unitToGrams(parseFloat(e.target.value) || 0, unit)))}
+                  style={{ flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
+                />
+                <button onClick={() => setGrams(g => Math.max(1, g + 25))}
+                  style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>+25g</button>
+              </div>
+              <UnitSelector unit={unit} onChange={setUnit} />
+            </div>
+
+            {/* Macro preview */}
+            <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:12, padding:14, marginBottom:14 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, textAlign:"center" }}>
+                {[
+                  { label:"KCAL", val: macros.cal, color: S.accent },
+                  { label:"PRO", val: macros.protein, color: S.green, suf:"g" },
+                  { label:"CRB", val: macros.carbs, color: S.blue, suf:"g" },
+                  { label:"FAT", val: macros.fat, color: S.purple, suf:"g" },
+                ].map(m => (
+                  <div key={m.label}>
+                    <div style={{ fontSize:20, fontWeight:600, color: m.color, fontFamily:"'DM Mono',monospace" }}>{m.val}<span style={{ fontSize:10, color:S.dim }}>{m.suf||""}</span></div>
+                    <div style={{ fontSize:9, color:S.dim, letterSpacing:1.5, marginTop:2 }}>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              placeholder="Notes (optional)…"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
+            />
+
+            <button onClick={handleSave}
+              style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"14px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+              SAVE CHANGES · {displayQty} {unit}
+            </button>
+            <button onClick={() => onDelete(slot, entry.id)}
+              style={{ width:"100%", background:"rgba(248,113,113,0.1)", border:`1px solid ${S.red}55`, color:S.red, borderRadius:12, padding:"12px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+              DELETE ENTRY
+            </button>
+            <button onClick={onClose}
+              style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"10px", fontSize:12, letterSpacing:1, cursor:"pointer" }}>
+              CANCEL
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     // ───────────────────── PORTION ADJUST ─────────────────────
     function PortionAdjust({ food, slot, onCancel, onLog }) {
+      const [unit, setUnit] = useState(food.preferredUnit || "g");
       const [grams, setGrams] = useState(food.refPortion?.grams || 100);
       const [notes, setNotes] = useState("");
 
+      const displayQty = gramsToUnit(grams, unit);
       const macros = scaleMacros(food.per100g, grams);
+
       const presets = [
         { label: food.refPortion?.label || "100g", grams: food.refPortion?.grams || 100 },
         { label: "100g", grams: 100 },
@@ -924,7 +1116,10 @@
         { label: "200g", grams: 200 },
       ].filter((p, i, arr) => arr.findIndex(x => x.grams === p.grams) === i);
 
-      const adjust = (delta) => setGrams(Math.max(1, grams + delta));
+      const handleQtyChange = (v) => {
+        const g = unitToGrams(parseFloat(v) || 0, unit);
+        setGrams(Math.max(1, g));
+      };
 
       return (
         <div>
@@ -937,36 +1132,33 @@
           </div>
 
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
-            <div style={{ fontSize:15, fontWeight:500, color:S.text, marginBottom:4 }}>
-              {food.name}
-            </div>
+            <div style={{ fontSize:15, fontWeight:500, color:S.text, marginBottom:4 }}>{food.name}</div>
             {food.brand && <div style={{ fontSize:11, color:S.dim, marginBottom:8 }}>{food.brand}</div>}
             <div style={{ fontSize:10, color:S.dim, fontFamily:"'DM Mono',monospace" }}>
               per 100g: {round(food.per100g.cal)} kcal · {round(food.per100g.protein,1)}P · {round(food.per100g.carbs,1)}C · {round(food.per100g.fat,1)}F
             </div>
           </div>
 
-          {/* Grams entry */}
+          {/* Portion + unit */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
             <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>PORTION</div>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-              <button onClick={() => adjust(-25)} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:18, fontWeight:700, cursor:"pointer" }}>−25</button>
-              <div style={{ flex:1, position:"relative" }}>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={grams}
-                  onChange={e => setGrams(Math.max(1, parseInt(e.target.value) || 0))}
-                  style={{ width:"100%", background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 50px 12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
-                />
-                <span style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", color:S.dim, fontSize:13, fontFamily:"'DM Mono',monospace" }}>g</span>
-              </div>
-              <button onClick={() => adjust(25)} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:18, fontWeight:700, cursor:"pointer" }}>+25</button>
+              <button onClick={() => setGrams(g => Math.max(1, g - 25))} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>−25g</button>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={displayQty}
+                onChange={e => handleQtyChange(e.target.value)}
+                style={{ flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
+              />
+              <button onClick={() => setGrams(g => Math.max(1, g + 25))} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>+25g</button>
             </div>
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            <UnitSelector unit={unit} onChange={setUnit} />
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
               {presets.map(p => (
-                <button key={p.label} onClick={() => setGrams(p.grams)} style={{ flex:1, background: grams === p.grams ? `${S.accent}22` : S.panel2, border:`1px solid ${grams === p.grams ? S.accent : S.border}`, color: grams === p.grams ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {p.label}
+                <button key={p.label} onClick={() => setGrams(p.grams)}
+                  style={{ flex:1, background: grams === p.grams ? `${S.accent}22` : S.panel2, border:`1px solid ${grams === p.grams ? S.accent : S.border}`, color: grams === p.grams ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {unit === "g" ? p.label : gramsToUnit(p.grams, unit) + " " + unit}
                 </button>
               ))}
             </div>
@@ -997,8 +1189,9 @@
             rows={2}
             style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
           />
-          <button onClick={() => onLog(grams, notes.trim() || undefined)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-            LOG {grams}g
+          <button onClick={() => onLog(grams, notes.trim() || undefined, unit !== "g" ? unit : undefined)}
+            style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+            LOG {displayQty} {unit}
           </button>
         </div>
       );
@@ -1008,7 +1201,9 @@
     function ManualEntry({ onCancel, onSave }) {
       const [name, setName] = useState("");
       const [brand, setBrand] = useState("");
-      const [refGrams, setRefGrams] = useState(100);
+      const [refUnit, setRefUnit] = useState("g");
+      const [refGrams, setRefGrams] = useState(100);  // always stored in grams
+      const [refDisplayQty, setRefDisplayQty] = useState(100);
       const [refLabel, setRefLabel] = useState("");
       const [refCal, setRefCal] = useState("");
       const [refProtein, setRefProtein] = useState("");
@@ -1053,10 +1248,26 @@
           <div style={{ flex:1, overflowY:"auto", paddingBottom:14, maxHeight:"calc(90vh - 100px)" }}>
             <Field label="NAME *" value={name} setValue={setName} placeholder="e.g., Tuscan kale salad" />
             <Field label="BRAND" value={brand} setValue={setBrand} placeholder="optional" />
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:8, marginBottom:8 }}>
-              <Field label="REF g *" value={refGrams} setValue={(v) => setRefGrams(parseInt(v) || 0)} type="number" />
-              <Field label="REF LABEL" value={refLabel} setValue={setRefLabel} placeholder="e.g., 1 cup" />
+            <div style={{ marginBottom:8 }}>
+              <label style={{ display:"block", fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:4 }}>REF PORTION *</label>
+              <div style={{ display:"flex", gap:8 }}>
+                <input
+                  type="number" inputMode="decimal"
+                  value={refDisplayQty}
+                  onChange={e => {
+                    const qty = parseFloat(e.target.value) || 0;
+                    setRefDisplayQty(e.target.value);
+                    setRefGrams(Math.max(1, unitToGrams(qty, refUnit)));
+                  }}
+                  style={{ flex:1, background:S.panel, border:"1px solid "+S.border, borderRadius:8, padding:"11px 12px", color:S.text, fontSize:14, fontWeight:600, outline:"none", textAlign:"center" }}
+                />
+                <UnitSelector unit={refUnit} onChange={u => {
+                  setRefUnit(u);
+                  setRefDisplayQty(gramsToUnit(refGrams, u));
+                }} />
+              </div>
             </div>
+            <Field label="REF LABEL" value={refLabel} setValue={setRefLabel} placeholder="e.g., 1 cup" />
             <div style={{ fontSize:10, color:S.dim, marginBottom:8, letterSpacing:1 }}>
               MACROS FOR {refGrams}g
             </div>
@@ -1747,7 +1958,7 @@
             </button>
 
             <div style={{ fontSize:10, fontFamily:"'DM Mono',monospace", color:S.dim, marginTop:14, textAlign:"center" }}>
-              v6.0 · DATE NAV · FIBRE · NOTES · PANTRY FIX
+              v6.1 · EDIT ENTRIES · UNDO DELETE · g/oz/lb UNITS
             </div>
           </div>
         </div>
