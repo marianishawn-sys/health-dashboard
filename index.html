@@ -325,7 +325,7 @@
 
     // ───────────────────── DATA MIGRATION ─────────────────────
     const migrateToV2 = (data) => {
-      if (!data) return { version: 2, foods: seedFoodsWithIds(), logs: {}, grocery: [], pantry: [], lastModified: new Date().toISOString() };
+      if (!data) return { version: 2, foods: seedFoodsWithIds(), logs: {}, grocery: [], groceryList: [], pantry: [], recipes: [], lastModified: new Date().toISOString() };
       if (data.version === 2) return data;
       // v1 → v2: add foods array, preserve everything else
       const seeded = seedFoodsWithIds();
@@ -540,7 +540,7 @@
       const [showSettings, setShowSettings] = useState(false);
       const [showFoodPicker, setShowFoodPicker] = useState(false);
       const [foodPickerSlot, setFoodPickerSlot] = useState(null);
-      const [data, setData] = useState({ version: 2, foods: [], logs: {}, groceryList: [], pantry: [] });
+      const [data, setData] = useState({ version: 2, foods: [], logs: {}, groceryList: [], pantry: [], recipes: [] });
       const [apiKey, setApiKey] = useState(localStorage.getItem("ant_api_key") || "");
       const [selectedDate, setSelectedDate] = useState(isoToday());
       const [editEntry, setEditEntry] = useState(null);   // { entry, slot } | null
@@ -804,6 +804,9 @@
           {tab === "grocery" && (
             <GroceryTab data={data} setData={saveData} />
           )}
+          {tab === "recipes" && (
+            <RecipesTab data={data} setData={saveData} apiKey={apiKey} onMissingKey={() => setShowSettings(true)} />
+          )}
           {tab === "pantry" && (
             <PantryTab data={data} setData={saveData} apiKey={apiKey} onMissingKey={() => setShowSettings(true)} />
           )}
@@ -816,6 +819,7 @@
             {[
               {k:"today",label:"TODAY"},
               {k:"grocery",label:"GROCERY"},
+              {k:"recipes",label:"RECIPES"},
               {k:"pantry",label:"PANTRY"},
               {k:"deals",label:"DEALS"},
             ].map(t => (
@@ -1868,6 +1872,338 @@
           <input type="number" inputMode="decimal" value={value} onChange={e => onChange(e.target.value)}
             style={{ width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:6, padding:"7px 4px", color:S.text, fontSize:12, fontWeight:600, textAlign:"center", outline:"none", fontFamily:"'DM Mono',monospace" }} />
           <div style={{ fontSize:8, color:S.dim, letterSpacing:1, textAlign:"center", marginTop:2 }}>{label}</div>
+        </div>
+      );
+    }
+
+    // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
+    function RecipeEditor({ recipe, ingredients, onSave, onCancel }) {
+      const [name, setName]             = useState(recipe.name || "");
+      const [servings, setServings]     = useState(recipe.servings || 2);
+      const [rows, setRows]             = useState(recipe.ingredients || []);
+      const [instructions, setInstructions] = useState(recipe.instructions || "");
+      const [ingSearch, setIngSearch]   = useState("");
+
+      const ingResults = useMemo(() => {
+        if (!ingSearch.trim()) return [];
+        const q = ingSearch.toLowerCase();
+        const usedIds = new Set(rows.map(r => r.itemId));
+        return ingredients.filter(i => !usedIds.has(i.id) && i.name.toLowerCase().includes(q)).slice(0, 6);
+      }, [ingSearch, ingredients, rows]);
+
+      const addIngredient = (ing) => {
+        setRows(prev => [...prev, { itemId: ing.id, quantity: 100, unit: ing.defaultUnit || "g" }]);
+        setIngSearch("");
+      };
+      const updateRow = (idx, field, val) =>
+        setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+      const removeRow = (idx) => setRows(prev => prev.filter((_, i) => i !== idx));
+
+      const save = () => {
+        if (!name.trim() || rows.length === 0) return;
+        onSave({ ...recipe, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions });
+      };
+
+      const panelStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10 };
+      const inputStyle = { ...panelStyle, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" };
+      const btnSmall   = { background:"none", border:"1px solid "+S.dim, color:S.dim, borderRadius:6, padding:"3px 8px", fontSize:11, cursor:"pointer" };
+
+      return (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.72)", zIndex:200, overflowY:"auto", padding:"20px 16px 40px" }}>
+          <div style={{ background:S.bg, border:"1px solid "+S.border, borderRadius:16, padding:"20px 18px", maxWidth:480, margin:"0 auto" }}>
+
+            <div style={{ fontWeight:700, fontSize:15, color:S.text, marginBottom:16 }}>
+              {recipe.id ? "Edit Recipe" : "New Recipe"}
+            </div>
+
+            {/* Name + Servings */}
+            <input placeholder="Recipe name *" value={name} onChange={e => setName(e.target.value)}
+              style={{ ...inputStyle, marginBottom:10, fontSize:14 }} />
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+              <span style={{ fontSize:12, color:S.dim }}>Servings</span>
+              <input type="number" min="1" value={servings} onChange={e => setServings(e.target.value)}
+                style={{ ...inputStyle, width:70, textAlign:"center" }} />
+            </div>
+
+            {/* Ingredient rows */}
+            {rows.length > 0 && (
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:6 }}>INGREDIENTS</div>
+                {rows.map((row, idx) => {
+                  const ing = ingredients.find(i => i.id === row.itemId);
+                  return (
+                    <div key={idx} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                      <span style={{ flex:1, fontSize:13, color:S.text }}>{ing?.name || row.itemId}</span>
+                      <input type="number" min="0" value={row.quantity}
+                        onChange={e => updateRow(idx, "quantity", parseFloat(e.target.value) || 0)}
+                        style={{ width:64, background:S.panel, border:"1px solid "+S.border, borderRadius:8,
+                          padding:"6px 8px", color:S.text, fontSize:13, outline:"none", textAlign:"right" }} />
+                      <input type="text" value={row.unit}
+                        onChange={e => updateRow(idx, "unit", e.target.value)}
+                        style={{ width:44, background:S.panel, border:"1px solid "+S.border, borderRadius:8,
+                          padding:"6px 6px", color:S.text, fontSize:12, outline:"none" }} />
+                      <button onClick={() => removeRow(idx)}
+                        style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 2px" }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Ingredient search */}
+            <div style={{ position:"relative", marginBottom:10 }}>
+              <input placeholder="Add ingredient…" value={ingSearch}
+                onChange={e => setIngSearch(e.target.value)}
+                style={{ ...inputStyle }} />
+              {ingResults.length > 0 && (
+                <div style={{ position:"absolute", left:0, right:0, top:"100%", background:S.bg,
+                  border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:180, overflowY:"auto" }}>
+                  {ingResults.map(ing => (
+                    <button key={ing.id} onClick={() => addIngredient(ing)}
+                      style={{ width:"100%", textAlign:"left", background:"none", border:"none",
+                        color:S.text, padding:"10px 14px", fontSize:13, cursor:"pointer",
+                        borderBottom:"1px solid "+S.border }}>
+                      {ing.name}
+                      <span style={{ fontSize:11, color:S.dim, marginLeft:6 }}>{ing.defaultUnit}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Instructions */}
+            <textarea placeholder="Instructions (optional)" value={instructions}
+              onChange={e => setInstructions(e.target.value)} rows={3}
+              style={{ ...inputStyle, resize:"vertical", marginBottom:16, fontFamily:"inherit" }} />
+
+            {/* Actions */}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={onCancel} style={{ ...btnSmall, flex:1, padding:"12px" }}>CANCEL</button>
+              <button onClick={save} disabled={!name.trim() || rows.length === 0}
+                style={{ flex:2, background: (!name.trim()||rows.length===0) ? S.border : S.accent,
+                  color:"#0a0c0f", border:"none", borderRadius:10, padding:"12px",
+                  fontSize:12, fontWeight:700, letterSpacing:1, cursor: (!name.trim()||rows.length===0) ? "default" : "pointer" }}>
+                SAVE RECIPE
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ───────────────────── RECIPES TAB ─────────────────────
+    function RecipesTab({ data, setData, apiKey, onMissingKey }) {
+      const [editRecipe, setEditRecipe] = useState(null); // null | recipe object (new={}) | existing
+      const [parseText, setParseText]   = useState("");
+      const [parsing, setParsing]       = useState(false);
+      const [search, setSearch]         = useState("");
+      const [expandedId, setExpandedId] = useState(null);
+
+      const recipes     = data.recipes     || [];
+      const ingredients = data.ingredients || [];
+
+      const filtered = useMemo(() => {
+        if (!search.trim()) return recipes;
+        const q = search.toLowerCase();
+        return recipes.filter(r => r.name.toLowerCase().includes(q));
+      }, [recipes, search]);
+
+      const saveRecipe = (recipe) => {
+        let next;
+        if (recipe.id) {
+          next = recipes.map(r => r.id === recipe.id ? recipe : r);
+        } else {
+          next = [...recipes, { ...recipe, id: uid("rec"), createdAt: new Date().toISOString() }];
+        }
+        setData({ ...data, recipes: next });
+        setEditRecipe(null);
+      };
+
+      const deleteRecipe = (id) => {
+        if (!confirm("Delete this recipe?")) return;
+        setData({ ...data, recipes: recipes.filter(r => r.id !== id) });
+      };
+
+      const parseRecipe = async () => {
+        if (!parseText.trim()) return;
+        if (!apiKey) { onMissingKey(); return; }
+        setParsing(true);
+        try {
+          const ingList = ingredients.map(i => `${i.id}: ${i.name}`).join("\n");
+          const prompt = `Parse this recipe and return ONLY a JSON object. Extract the name, number of servings (default 2), all ingredients with quantities/units, and any instructions.
+
+Known ingredient registry (match by name when possible, use the itemId):
+${ingList}
+
+Return format:
+{
+  "name": "Recipe Name",
+  "servings": 2,
+  "ingredients": [
+    {"itemId": "ing_xxx or null", "name": "ingredient name", "quantity": 100, "unit": "g"}
+  ],
+  "instructions": "brief steps if present"
+}
+
+Recipe text:
+${parseText}`;
+          const resp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1024,
+              messages: [{ role: "user", content: prompt }] }),
+          });
+          const result = await resp.json();
+          const text = result.content?.[0]?.text || "";
+          const match = text.match(/\{[\s\S]*\}/);
+          if (!match) throw new Error("No JSON in response");
+          const parsed = JSON.parse(match[0]);
+
+          // Create registry entries for unknown ingredients
+          const newIngs = [...ingredients];
+          const recipeRows = (parsed.ingredients || []).map(ing => {
+            let itemId = ing.itemId;
+            if (!itemId || !ingredients.find(i => i.id === itemId)) {
+              // Fuzzy match existing
+              const nl = (ing.name || "").toLowerCase();
+              const found = newIngs.find(i =>
+                i.name.toLowerCase() === nl ||
+                nl.includes(i.name.toLowerCase().split(" ")[0])
+              );
+              if (found) { itemId = found.id; }
+              else {
+                itemId = uid("ing");
+                newIngs.push({ id: itemId, name: ing.name || "Unknown", defaultUnit: ing.unit || "g", category: "pantry" });
+              }
+            }
+            return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g" };
+          });
+
+          // Persist new registry entries
+          const updData = newIngs.length !== ingredients.length
+            ? { ...data, ingredients: newIngs }
+            : data;
+          if (updData !== data) setData(updData);
+
+          setEditRecipe({
+            name: parsed.name || "Unnamed Recipe",
+            servings: parsed.servings || 2,
+            ingredients: recipeRows,
+            instructions: parsed.instructions || "",
+          });
+          setParseText("");
+        } catch (e) {
+          alert("Parse failed: " + e.message);
+        }
+        setParsing(false);
+      };
+
+      const inputStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10,
+        padding:"10px 12px", color:S.text, fontSize:13, outline:"none" };
+
+      return (
+        <div style={{ padding:"14px 16px 24px" }}>
+
+          {/* ── Search + New ── */}
+          <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+            <input placeholder="Search recipes…" value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ ...inputStyle, flex:1 }} />
+            <button onClick={() => setEditRecipe({})}
+              style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10,
+                padding:"10px 16px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+              + NEW
+            </button>
+          </div>
+
+          {/* ── AI Parse ── */}
+          <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>AI RECIPE PARSER</div>
+            <textarea placeholder="Paste recipe text here (ingredients, quantities, instructions)…"
+              value={parseText} onChange={e => setParseText(e.target.value)} rows={4}
+              style={{ width:"100%", background:S.bg, border:"1px solid "+S.border, borderRadius:8,
+                padding:"10px", color:S.text, fontSize:13, outline:"none", resize:"vertical",
+                fontFamily:"inherit", boxSizing:"border-box", marginBottom:8 }} />
+            <button onClick={parseRecipe} disabled={parsing || !parseText.trim()}
+              style={{ background: (parsing||!parseText.trim()) ? S.border : S.accent,
+                color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 18px",
+                fontSize:12, fontWeight:700, letterSpacing:1,
+                cursor: (parsing||!parseText.trim()) ? "default" : "pointer" }}>
+              {parsing ? "PARSING…" : "🤖 PARSE RECIPE"}
+            </button>
+          </div>
+
+          {/* ── Recipe list ── */}
+          {filtered.length === 0 && (
+            <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
+              {search ? "No matches." : "No recipes yet. Add one above or paste recipe text to parse."}
+            </div>
+          )}
+
+          {filtered.map(recipe => {
+            const isExpanded = expandedId === recipe.id;
+            return (
+              <div key={recipe.id} style={{ background:S.panel, border:"1px solid "+S.border,
+                borderRadius:12, marginBottom:10, overflow:"hidden" }}>
+
+                {/* Header row */}
+                <div onClick={() => setExpandedId(isExpanded ? null : recipe.id)}
+                  style={{ display:"flex", alignItems:"center", padding:"12px 14px", cursor:"pointer" }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:600, color:S.text }}>{recipe.name}</div>
+                    <div style={{ fontSize:11, color:S.dim, marginTop:2 }}>
+                      {recipe.servings} serving{recipe.servings !== 1 ? "s" : ""} · {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <span style={{ color:S.dim, fontSize:16 }}>{isExpanded ? "▲" : "▼"}</span>
+                </div>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div style={{ padding:"0 14px 14px", borderTop:"1px solid "+S.border }}>
+                    {recipe.ingredients.map((row, idx) => {
+                      const ing = ingredients.find(i => i.id === row.itemId);
+                      return (
+                        <div key={idx} style={{ display:"flex", justifyContent:"space-between",
+                          padding:"6px 0", borderBottom:"1px solid "+S.border, fontSize:13 }}>
+                          <span style={{ color:S.text }}>{ing?.name || row.itemId}</span>
+                          <span style={{ color:S.dim }}>{row.quantity} {row.unit}</span>
+                        </div>
+                      );
+                    })}
+                    {recipe.instructions && (
+                      <div style={{ fontSize:12, color:S.dim, marginTop:10, lineHeight:1.5,
+                        fontStyle:"italic" }}>{recipe.instructions}</div>
+                    )}
+                    <div style={{ display:"flex", gap:8, marginTop:12 }}>
+                      <button onClick={() => setEditRecipe({ ...recipe })}
+                        style={{ flex:1, background:"none", border:"1px solid "+S.dim, color:S.dim,
+                          borderRadius:8, padding:"8px", fontSize:11, fontWeight:600,
+                          letterSpacing:1, cursor:"pointer" }}>
+                        EDIT
+                      </button>
+                      <button onClick={() => deleteRecipe(recipe.id)}
+                        style={{ background:"none", border:"1px solid "+S.red, color:S.red,
+                          borderRadius:8, padding:"8px 14px", fontSize:11, fontWeight:600,
+                          letterSpacing:1, cursor:"pointer" }}>
+                        DELETE
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Recipe editor modal */}
+          {editRecipe !== null && (
+            <RecipeEditor
+              recipe={editRecipe}
+              ingredients={ingredients}
+              onSave={saveRecipe}
+              onCancel={() => setEditRecipe(null)}
+            />
+          )}
         </div>
       );
     }
