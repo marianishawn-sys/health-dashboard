@@ -296,6 +296,7 @@
       protein: round(per100g.protein * grams / 100, 1),
       carbs: round(per100g.carbs * grams / 100, 1),
       fat: round(per100g.fat * grams / 100, 1),
+      fibre: round((per100g.fibre || 0) * grams / 100, 1),
     });
 
     const sumLogged = (logs, date) => {
@@ -795,6 +796,9 @@
               </div>
             </div>
           </div>
+
+          {/* Divider */}
+          <div style={{ height:1, background:S.border, marginBottom:14 }} />
 
           {/* Meals */}
           {meals.map(m => {
