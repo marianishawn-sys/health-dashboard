@@ -325,7 +325,7 @@
 
     // ───────────────────── DATA MIGRATION ─────────────────────
     const migrateToV2 = (data) => {
-      if (!data) return { version: 2, foods: seedFoodsWithIds(), logs: {}, grocery: [], groceryList: [], pantry: [], recipes: [], lastModified: new Date().toISOString() };
+      if (!data) return { version: 2, foods: seedFoodsWithIds(), logs: {}, grocery: [], groceryList: [], pantry: [], recipes: [], mealPlan: [], lastModified: new Date().toISOString() };
       if (data.version === 2) return data;
       // v1 → v2: add foods array, preserve everything else
       const seeded = seedFoodsWithIds();
@@ -540,7 +540,7 @@
       const [showSettings, setShowSettings] = useState(false);
       const [showFoodPicker, setShowFoodPicker] = useState(false);
       const [foodPickerSlot, setFoodPickerSlot] = useState(null);
-      const [data, setData] = useState({ version: 2, foods: [], logs: {}, groceryList: [], pantry: [], recipes: [] });
+      const [data, setData] = useState({ version: 2, foods: [], logs: {}, groceryList: [], pantry: [], recipes: [], mealPlan: [] });
       const [apiKey, setApiKey] = useState(localStorage.getItem("ant_api_key") || "");
       const [selectedDate, setSelectedDate] = useState(isoToday());
       const [editEntry, setEditEntry] = useState(null);   // { entry, slot } | null
@@ -2208,6 +2208,195 @@ ${parseText}`;
       );
     }
 
+    // ───────────────────── MEAL PLAN SECTION (M4) ─────────────────────
+    function MealPlanSection({ data, setData }) {
+      const [collapsed, setCollapsed]   = useState(false);
+      const [pickDay, setPickDay]       = useState(null); // ISO date | null
+      const [recipeSearch, setRecipeSearch] = useState("");
+
+      const mealPlan  = data.mealPlan  || [];
+      const recipes   = data.recipes   || [];
+      const pantry    = data.pantry    || [];
+      const ings      = data.ingredients || [];
+
+      // Next 7 days (ISO dates)
+      const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(); d.setDate(d.getDate() + i);
+        return d.toISOString().slice(0, 10);
+      }), []);
+
+      const getPlan = (date) => mealPlan.filter(p => p.date === date);
+
+      const addMeal = (date, recipe) => {
+        setData({ ...data, mealPlan: [...mealPlan, {
+          id: uid("mp"), date, slot: "dinner",
+          recipeId: recipe.id, servings: recipe.servings || 2,
+        }]});
+        setPickDay(null); setRecipeSearch("");
+      };
+
+      const removeMeal = (id) => setData({ ...data, mealPlan: mealPlan.filter(p => p.id !== id) });
+
+      const updateServings = (id, val) => {
+        const n = Math.max(1, Number(val) || 1);
+        setData({ ...data, mealPlan: mealPlan.map(p => p.id === id ? { ...p, servings: n } : p) });
+      };
+
+      const recipeResults = useMemo(() => {
+        const q = recipeSearch.toLowerCase().trim();
+        return (q ? recipes.filter(r => r.name.toLowerCase().includes(q)) : recipes).slice(0, 5);
+      }, [recipeSearch, recipes]);
+
+      // Demand calculation: sum ingredient qty across plan, subtract pantry, add shortfalls as source:"plan"
+      const buildShoppingList = () => {
+        // 1. Sum demand per ingredient (in base units)
+        const demand = {}; // itemId → { baseQty, unit, family }
+        mealPlan.forEach(plan => {
+          const recipe = recipes.find(r => r.id === plan.recipeId);
+          if (!recipe) return;
+          const scale = (plan.servings || 1) / (recipe.servings || 1);
+          recipe.ingredients.forEach(ri => {
+            if (!ri.itemId) return;
+            const unit   = ri.unit || "g";
+            const family = getUnitFamily(unit);
+            const base   = toBaseUnit((ri.quantity || 0) * scale, unit);
+            if (!demand[ri.itemId]) demand[ri.itemId] = { baseQty: 0, unit, family };
+            // Only accumulate if same unit family
+            if (demand[ri.itemId].family === family) demand[ri.itemId].baseQty += base;
+          });
+        });
+
+        // 2. Subtract pantry stock
+        pantry.forEach(p => {
+          if (!demand[p.itemId]) return;
+          if (p.trackingType === "state") {
+            // State item: assume "have" = sufficient; "low"/"out" = don't reduce
+            if (p.state === "have") delete demand[p.itemId];
+            return;
+          }
+          const pantryBase = toBaseUnit(p.quantity || 0, p.unit || "g");
+          const dem = demand[p.itemId];
+          if (getUnitFamily(p.unit || "g") === dem.family) {
+            dem.baseQty = Math.max(0, dem.baseQty - pantryBase);
+          }
+        });
+
+        // 3. Build new plan-sourced grocery entries for remaining shortfalls
+        const existing = (data.groceryList || []).filter(g => g.source !== "plan");
+        const newEntries = Object.entries(demand)
+          .filter(([, d]) => d.baseQty > 0)
+          .map(([itemId, d]) => {
+            const ing = ings.find(i => i.id === itemId);
+            const qty = round(fromBaseUnit(d.baseQty, d.unit), 1);
+            return { id: uid("g"), name: ing?.name || itemId, itemId,
+              quantity: qty, unit: d.unit, source: "plan", done: false };
+          });
+
+        setData({ ...data, groceryList: [...existing, ...newEntries] });
+        alert(`Shopping list updated — ${newEntries.length} plan item${newEntries.length!==1?"s":""} added.`);
+      };
+
+      const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+      const fmtDate = (iso) => {
+        const d = new Date(iso + "T12:00:00");
+        return DOW[d.getDay()] + " " + (d.getMonth()+1) + "/" + d.getDate();
+      };
+
+      const panelInput = { background:S.bg, border:"1px solid "+S.border, borderRadius:8,
+        padding:"8px 10px", color:S.text, fontSize:13, outline:"none" };
+
+      return (
+        <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, marginBottom:16 }}>
+          {/* Header toggle */}
+          <div onClick={() => setCollapsed(!collapsed)}
+            style={{ display:"flex", alignItems:"center", padding:"12px 14px", cursor:"pointer" }}>
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, flex:1 }}>
+              MEAL PLAN · NEXT 7 DAYS {mealPlan.length > 0 ? "· "+mealPlan.length+" MEAL"+( mealPlan.length!==1?"S":"") : ""}
+            </div>
+            <span style={{ color:S.dim, fontSize:12 }}>{collapsed ? "▶" : "▼"}</span>
+          </div>
+
+          {!collapsed && (
+            <div style={{ padding:"0 14px 14px" }}>
+              {days.map(date => {
+                const plans = getPlan(date);
+                const isPicking = pickDay === date;
+                return (
+                  <div key={date} style={{ marginBottom:10 }}>
+                    <div style={{ fontSize:11, color:S.dim, marginBottom:4, fontWeight:600 }}>
+                      {fmtDate(date)}
+                    </div>
+
+                    {/* Planned meals for this day */}
+                    {plans.map(p => {
+                      const rec = recipes.find(r => r.id === p.recipeId);
+                      return (
+                        <div key={p.id} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4,
+                          background:S.bg, border:"1px solid "+S.border, borderRadius:8, padding:"8px 10px" }}>
+                          <span style={{ flex:1, fontSize:13, color:S.text }}>{rec?.name || "Unknown recipe"}</span>
+                          <span style={{ fontSize:11, color:S.dimmer }}>srv</span>
+                          <input type="number" min="1" value={p.servings}
+                            onChange={e => updateServings(p.id, e.target.value)}
+                            style={{ ...panelInput, width:44, textAlign:"center", padding:"4px 6px" }} />
+                          <button onClick={() => removeMeal(p.id)}
+                            style={{ background:"none", border:"none", color:S.dimmer,
+                              fontSize:17, cursor:"pointer", padding:"0 2px" }}>×</button>
+                        </div>
+                      );
+                    })}
+
+                    {/* Recipe picker for this day */}
+                    {isPicking ? (
+                      <div style={{ background:S.bg, border:"1px solid "+S.border, borderRadius:8, padding:10 }}>
+                        <input autoFocus placeholder="Search recipes…" value={recipeSearch}
+                          onChange={e => setRecipeSearch(e.target.value)}
+                          style={{ ...panelInput, width:"100%", marginBottom:6, boxSizing:"border-box" }} />
+                        {recipes.length === 0 ? (
+                          <div style={{ fontSize:12, color:S.dim, padding:"4px 0" }}>
+                            No recipes yet — add some in the RECIPES tab.
+                          </div>
+                        ) : recipeResults.map(r => (
+                          <button key={r.id} onClick={() => addMeal(date, r)}
+                            style={{ width:"100%", textAlign:"left", background:S.panel,
+                              border:"1px solid "+S.border, borderRadius:8, padding:"8px 10px",
+                              color:S.text, fontSize:13, cursor:"pointer", marginBottom:3,
+                              display:"block" }}>
+                            {r.name}
+                            <span style={{ fontSize:11, color:S.dim, marginLeft:6 }}>
+                              {r.servings} srv · {r.ingredients.length} ing
+                            </span>
+                          </button>
+                        ))}
+                        <button onClick={() => { setPickDay(null); setRecipeSearch(""); }}
+                          style={{ fontSize:11, color:S.dim, background:"none", border:"none",
+                            cursor:"pointer", marginTop:4 }}>cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setPickDay(date); setRecipeSearch(""); }}
+                        style={{ fontSize:11, color:S.dimmer, background:"none", border:"none",
+                          cursor:"pointer", padding:"2px 0" }}>
+                        + add meal
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+              <button onClick={buildShoppingList} disabled={mealPlan.length === 0}
+                style={{ width:"100%", marginTop:4,
+                  background: mealPlan.length === 0 ? S.border : S.accent,
+                  color: mealPlan.length === 0 ? S.dim : "#0a0c0f",
+                  border:"none", borderRadius:10, padding:"12px",
+                  fontSize:12, fontWeight:700, letterSpacing:1,
+                  cursor: mealPlan.length === 0 ? "default" : "pointer" }}>
+                📋 BUILD SHOPPING LIST
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ───────────────────── GROCERY TAB v7 M2 ─────────────────────
     function GroceryTab({ data, setData }) {
       const [newItem, setNewItem] = useState("");
@@ -2301,6 +2490,9 @@ ${parseText}`;
               ADD
             </button>
           </div>
+
+          {/* ── Meal plan ── */}
+          <MealPlanSection data={data} setData={setData} />
 
           {/* ── Needs restocking (auto-derived) ── */}
           {autoLow.length > 0 && (
