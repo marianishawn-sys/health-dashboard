@@ -37,7 +37,9 @@
 
     // ───────────────────── CONSTANTS ─────────────────────
     const CLIENT_ID = "256298678690-tet3q34ullcmjk4jotpniugda4l60kqs.apps.googleusercontent.com";
-    const SCOPE = "https://www.googleapis.com/auth/drive.file";
+    // Upgraded to drive scope (v7 M5) so we can search + delete coach-*.json files
+    // created by Claude.ai via Google Workspace MCP. Triggers one-time re-consent.
+    const SCOPE = "https://www.googleapis.com/auth/drive";
     const DATA_FILENAME = "dashboard-data.json";
     // Hardcoded folder ID for "04 - Personal / Health Concierge". Drive.file scope cannot
     // see folders by name (only files the app itself created), so we pin the ID directly.
@@ -315,6 +317,25 @@
       try { return JSON.parse(text); } catch (e) { return null; }
     };
 
+    const deleteDriveFile = async (id) => {
+      return driveFetch("https://www.googleapis.com/drive/v3/files/" + id, { method: "DELETE" });
+    };
+
+    // Search for coach-*.json files in the given folder (requires drive scope).
+    const searchCoachFiles = async (parentFolderId) => {
+      try {
+        const q = encodeURIComponent(
+          `name contains 'coach-' and '${parentFolderId}' in parents and trashed = false`
+        );
+        const r = await driveFetch(
+          `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name`
+        );
+        if (!r.ok) return [];
+        const d = await r.json();
+        return d.files || [];
+      } catch (e) { return []; }
+    };
+
     const writeDriveFile = async (id, data) => {
       return driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media", {
         method: "PATCH",
@@ -480,6 +501,102 @@
       // Note: old `grocery` key left in place for safety; GroceryTab only reads `groceryList`.
     };
 
+    // ───────────────────── COACH INGEST (M5) ─────────────────────
+    // Drain-and-delete: reads coach-*.json files from Drive, ingests content, deletes each file.
+    // File types: coach-additions.json, coach-recipes.json, coach-mealplan.json
+    // Returns { data, changed } — caller saves to Drive if changed === true.
+    const ingestCoachFiles = async (parentFolderId, currentData) => {
+      const files = await searchCoachFiles(parentFolderId);
+      if (files.length === 0) return { data: currentData, changed: false };
+
+      let data = { ...currentData };
+      let changed = false;
+
+      for (const file of files) {
+        try {
+          const content = await readDriveFile(file.id);
+          if (!content || !content.type) { await deleteDriveFile(file.id); continue; }
+
+          // ── coach-additions.json ── add new foods to library ──
+          if (content.type === "additions") {
+            const newFoods = [...(data.foods || [])];
+            (content.foods || []).forEach(f => {
+              if (!f.name) return;
+              if (newFoods.find(e => e.name.toLowerCase() === f.name.toLowerCase())) return;
+              const per = f.per100g || {};
+              newFoods.push({
+                id: uid("f"), name: f.name, brand: f.brand || "",
+                per100g: { cal: per.cal||0, protein: per.protein||0,
+                           carbs: per.carbs||0, fat: per.fat||0, fibre: per.fibre||0 },
+                useCount: 0, source: "coach",
+              });
+            });
+            data = { ...data, foods: newFoods };
+            changed = true;
+          }
+
+          // ── coach-recipes.json ── add new recipes (resolve ingredient names → itemIds) ──
+          if (content.type === "recipes") {
+            const newRecipes  = [...(data.recipes  || [])];
+            const newIngs     = [...(data.ingredients || [])];
+            (content.recipes || []).forEach(r => {
+              if (!r.name) return;
+              if (newRecipes.find(e => e.name.toLowerCase() === r.name.toLowerCase())) return; // skip dupe
+              const recipeRows = (r.ingredients || []).map(ri => {
+                const nl = (ri.itemName || ri.name || "").toLowerCase();
+                let ing = newIngs.find(i => i.name.toLowerCase() === nl) ||
+                          newIngs.find(i => nl.includes(i.name.toLowerCase().split(" ")[0]));
+                let itemId;
+                if (ing) { itemId = ing.id; }
+                else {
+                  itemId = uid("ing");
+                  ing = { id: itemId, name: ri.itemName || ri.name || "Unknown",
+                          defaultUnit: ri.unit || "g", category: "pantry" };
+                  newIngs.push(ing);
+                }
+                return { itemId, quantity: ri.quantity || 0, unit: ri.unit || "g" };
+              });
+              newRecipes.push({
+                id: uid("rec"), name: r.name, servings: r.servings || 2,
+                ingredients: recipeRows, instructions: r.instructions || "",
+                createdAt: new Date().toISOString(), source: "coach",
+              });
+            });
+            data = { ...data, recipes: newRecipes, ingredients: newIngs };
+            changed = true;
+          }
+
+          // ── coach-mealplan.json ── add planned meals (resolve recipe names → ids) ──
+          if (content.type === "mealplan") {
+            const newPlan = [...(data.mealPlan || [])];
+            (content.entries || []).forEach(e => {
+              let recipeId = e.recipeId;
+              if (!recipeId && e.recipeName) {
+                const rec = (data.recipes || []).find(
+                  r => r.name.toLowerCase() === e.recipeName.toLowerCase()
+                );
+                recipeId = rec?.id;
+              }
+              if (!recipeId || !e.date) return; // skip unresolvable
+              const slot = e.slot || "dinner";
+              if (newPlan.find(p => p.date === e.date && p.slot === slot && p.recipeId === recipeId)) return;
+              newPlan.push({ id: uid("mp"), date: e.date, slot,
+                recipeId, servings: e.servings || 2, source: "coach" });
+            });
+            data = { ...data, mealPlan: newPlan };
+            changed = true;
+          }
+
+          await deleteDriveFile(file.id);
+        } catch (e) {
+          console.error("Coach ingest error:", file.name, e);
+          // Don't delete on error — leave file for retry on next load
+        }
+      }
+
+      return { data, changed };
+    };
+
     // ───────────────────── MACRO CALC ─────────────────────
     const scaleMacros = (per100g, grams) => ({
       cal: round(per100g.cal * grams / 100),
@@ -592,9 +709,17 @@
           const v4 = migrateToV4(v3b);
           const migrated = migrateGroceryList(v4);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
-          setData(migrated);
-          if (!raw || (raw.schema_version || 0) < 4 || !raw.groceryList || migrated !== v4) {
-            await writeDriveFile(fileId, migrated);
+
+          // Drain coach-*.json files before first render
+          const { data: afterCoach, changed: coachChanged } =
+            await ingestCoachFiles(folderId, migrated);
+
+          setData(afterCoach);
+
+          const needsSave = !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
+            || migrated !== v4 || coachChanged;
+          if (needsSave) {
+            await writeDriveFile(fileId, afterCoach);
           }
         } catch (e) {
           console.error("Load failed", e);
