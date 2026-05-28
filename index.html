@@ -462,6 +462,24 @@
       return { ...data, schema_version: 4, ingredients: newIngredients, pantry: newPantry };
     };
 
+    // ───────────────────── DATA MIGRATION v4b — groceryList ─────────────────────
+    // Renames old `grocery` array → `groceryList` with source:"manual".
+    // Idempotent: returns data unchanged (same ref) if groceryList already exists.
+    const migrateGroceryList = (data) => {
+      if (!data || data.groceryList) return data;
+      const groceryList = (data.grocery || []).map(g => ({
+        id: g.id || uid("g"),
+        name: g.name || "",
+        itemId: null,
+        quantity: null,
+        unit: null,
+        source: "manual",
+        done: !!g.done,
+      })).filter(g => g.name);
+      return { ...data, groceryList };
+      // Note: old `grocery` key left in place for safety; GroceryTab only reads `groceryList`.
+    };
+
     // ───────────────────── MACRO CALC ─────────────────────
     const scaleMacros = (per100g, grams) => ({
       cal: round(per100g.cal * grams / 100),
@@ -522,7 +540,7 @@
       const [showSettings, setShowSettings] = useState(false);
       const [showFoodPicker, setShowFoodPicker] = useState(false);
       const [foodPickerSlot, setFoodPickerSlot] = useState(null);
-      const [data, setData] = useState({ version: 2, foods: [], logs: {}, grocery: [], pantry: [] });
+      const [data, setData] = useState({ version: 2, foods: [], logs: {}, groceryList: [], pantry: [] });
       const [apiKey, setApiKey] = useState(localStorage.getItem("ant_api_key") || "");
       const [selectedDate, setSelectedDate] = useState(isoToday());
       const [editEntry, setEditEntry] = useState(null);   // { entry, slot } | null
@@ -571,10 +589,11 @@
           const v2 = migrateToV2(raw);
           const v3 = migrateToV3(v2);
           const v3b = backfillSeedFibre(v3);
-          const migrated = migrateToV4(v3b);
+          const v4 = migrateToV4(v3b);
+          const migrated = migrateGroceryList(v4);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
           setData(migrated);
-          if (!raw || (raw.schema_version || 0) < 4 || migrated !== v3b) {
+          if (!raw || (raw.schema_version || 0) < 4 || !raw.groceryList || migrated !== v4) {
             await writeDriveFile(fileId, migrated);
           }
         } catch (e) {
@@ -1853,83 +1872,196 @@
       );
     }
 
-    // ───────────────────── GROCERY TAB ─────────────────────
+    // ───────────────────── GROCERY TAB v7 M2 ─────────────────────
     function GroceryTab({ data, setData }) {
       const [newItem, setNewItem] = useState("");
+      const [newQty, setNewQty]   = useState("");
+      const [newUnit, setNewUnit] = useState("");
 
-      const grouped = useMemo(() => {
-        const g = {};
-        (data.grocery || []).forEach(item => {
-          const store = item.store || "OTHER";
-          if (!g[store]) g[store] = [];
-          g[store].push(item);
+      const groceryList = data.groceryList || [];
+
+      // Derived: pantry items that are low/out and not already in the shopping list
+      const autoLow = useMemo(() => {
+        const pantry    = data.pantry      || [];
+        const ings      = data.ingredients || [];
+        const inListIds = new Set(groceryList.filter(g => g.itemId).map(g => g.itemId));
+        return pantry.filter(p => {
+          if (p.neverFlag) return false;
+          if (inListIds.has(p.itemId)) return false;
+          if (p.trackingType === "state") return p.state === "out" || p.state === "low";
+          const qty = p.quantity || 0;
+          if (qty <= 0) return true;
+          if (p.parLevel != null && p.parLevel > 0 && qty <= p.parLevel) return true;
+          if (p.expiry && !p.expiryNA) {
+            const days = (new Date(p.expiry + "T12:00:00") - new Date()) / 86400000;
+            if (days < 0 || days <= SOON_DAYS) return true;
+          }
+          return false;
+        }).map(p => {
+          const ing = ings.find(i => i.id === p.itemId) || {};
+          const isRed = p.trackingType === "state" ? p.state === "out" : (p.quantity || 0) <= 0;
+          return { id: p.id, itemId: p.itemId, name: ing.name || "Unknown", isRed };
         });
-        return g;
-      }, [data.grocery]);
+      }, [data.pantry, data.ingredients, groceryList]);
 
       const toggle = (id) => {
-        const grocery = data.grocery.map(i => i.id === id ? { ...i, done: !i.done } : i);
-        setData({ ...data, grocery });
+        const next = groceryList.map(i => i.id === id ? { ...i, done: !i.done } : i);
+        setData({ ...data, groceryList: next });
       };
-
-      const remove = (id) => {
-        const grocery = data.grocery.filter(i => i.id !== id);
-        setData({ ...data, grocery });
-      };
+      const remove = (id) => setData({ ...data, groceryList: groceryList.filter(i => i.id !== id) });
 
       const addItem = () => {
         if (!newItem.trim()) return;
-        const item = { id: uid("g"), name: newItem.trim(), store: "OTHER", done: false };
-        setData({ ...data, grocery: [...(data.grocery || []), item] });
-        setNewItem("");
+        const item = {
+          id: uid("g"),
+          name: newItem.trim(),
+          itemId: null,
+          quantity: newQty ? parseFloat(newQty) : null,
+          unit: newUnit.trim() || null,
+          source: "manual",
+          done: false,
+        };
+        setData({ ...data, groceryList: [...groceryList, item] });
+        setNewItem(""); setNewQty(""); setNewUnit("");
       };
 
-      const reset = () => {
-        if (!confirm("Clear all checked items?")) return;
-        const grocery = (data.grocery || []).filter(i => !i.done);
-        setData({ ...data, grocery });
+      const addLowToList = (lowItem) => {
+        setData({ ...data, groceryList: [...groceryList, {
+          id: uid("g"), name: lowItem.name, itemId: lowItem.itemId,
+          quantity: null, unit: null, source: "low", done: false,
+        }]});
       };
+
+      const doneShopping = () => {
+        if (!confirm("Clear all checked items?")) return;
+        setData({ ...data, groceryList: groceryList.filter(i => !i.done) });
+      };
+
+      const SOURCE_LABEL = { low:"LOW", plan:"PLAN", coach:"COACH", manual:"" };
+      const SOURCE_COLOR = { low:S.red, plan:S.accent, coach:"#9b8afb", manual:S.dimmer };
+
+      const pending = groceryList.filter(i => !i.done);
+      const done    = groceryList.filter(i =>  i.done);
+
+      const inputStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"11px 12px", color:S.text, fontSize:14, outline:"none" };
 
       return (
         <div style={{ padding:"14px 16px 24px" }}>
-          <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-            <input
-              type="text"
-              placeholder="Add item…"
-              value={newItem}
+
+          {/* ── Add item ── */}
+          <div style={{ display:"flex", gap:6, marginBottom:14 }}>
+            <input type="text" placeholder="Add item…" value={newItem}
               onChange={e => setNewItem(e.target.value)}
               onKeyDown={e => e.key === "Enter" && addItem()}
-              style={{ flex:1, background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"11px 14px", color:S.text, fontSize:14, outline:"none" }}
-            />
-            <button onClick={addItem} style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"11px 16px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+              style={{ ...inputStyle, flex:1 }} />
+            <input type="number" placeholder="qty" value={newQty}
+              onChange={e => setNewQty(e.target.value)}
+              style={{ ...inputStyle, width:52, padding:"11px 8px", fontSize:13 }} />
+            <input type="text" placeholder="unit" value={newUnit}
+              onChange={e => setNewUnit(e.target.value)}
+              style={{ ...inputStyle, width:48, padding:"11px 8px", fontSize:13 }} />
+            <button onClick={addItem}
+              style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"11px 16px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
               ADD
             </button>
           </div>
 
-          {Object.keys(grouped).length === 0 && (
-            <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
-              No grocery items. Add one above.
-            </div>
-          )}
-
-          {Object.entries(grouped).map(([store, items]) => (
-            <div key={store} style={{ marginBottom:14 }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>{store} · {items.length}</div>
-              {items.map(item => (
-                <div key={item.id} style={{ display:"flex", alignItems:"center", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
-                  <button onClick={() => toggle(item.id)} style={{ width:22, height:22, borderRadius:6, background: item.done ? S.green : "transparent", border:`2px solid ${item.done ? S.green : S.dim}`, marginRight:12, color:"#0a0c0f", fontSize:12, fontWeight:700, cursor:"pointer", padding:0 }}>
-                    {item.done ? "✓" : ""}
+          {/* ── Needs restocking (auto-derived) ── */}
+          {autoLow.length > 0 && (
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
+                NEEDS RESTOCKING · {autoLow.length}
+              </div>
+              {autoLow.map(item => (
+                <div key={item.id} style={{ display:"flex", alignItems:"center", background:S.panel,
+                  border:`1px solid ${item.isRed ? S.red : S.accent}`, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%",
+                    background: item.isRed ? S.red : S.accent, marginRight:10, flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:13, color:S.text }}>{item.name}</span>
+                  <span style={{ fontSize:9, fontWeight:700, letterSpacing:1,
+                    color: item.isRed ? S.red : S.accent, marginRight:8 }}>
+                    {item.isRed ? "OUT" : "LOW"}
+                  </span>
+                  <button onClick={() => addLowToList(item)}
+                    style={{ background:"none", border:"1px solid "+S.dim, color:S.dim,
+                      borderRadius:6, padding:"3px 8px", fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
+                    + LIST
                   </button>
-                  <span style={{ flex:1, fontSize:13, color: item.done ? S.dim : S.text, textDecoration: item.done ? "line-through" : "none" }}>{item.name}</span>
-                  <button onClick={() => remove(item.id)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 4px" }}>×</button>
                 </div>
               ))}
             </div>
-          ))}
+          )}
 
-          {(data.grocery || []).some(i => i.done) && (
-            <button onClick={reset} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, color:S.dim, padding:"12px", borderRadius:10, fontSize:11, fontWeight:600, letterSpacing:1, cursor:"pointer", marginTop:6 }}>
-              CLEAR CHECKED
+          {/* ── Shopping list — pending ── */}
+          {pending.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
+                SHOPPING LIST · {pending.length}
+              </div>
+              {pending.map(item => (
+                <div key={item.id} style={{ display:"flex", alignItems:"center", background:S.panel,
+                  border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
+                  <button onClick={() => toggle(item.id)}
+                    style={{ width:22, height:22, borderRadius:6, background:"transparent",
+                      border:"2px solid "+S.dim, marginRight:12, color:"#0a0c0f", fontSize:12,
+                      fontWeight:700, cursor:"pointer", padding:0, flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:13, color:S.text }}>
+                    {item.name}
+                    {item.quantity != null &&
+                      <span style={{ color:S.dim, marginLeft:5 }}>
+                        {item.quantity}{item.unit ? " "+item.unit : ""}
+                      </span>}
+                  </span>
+                  {item.source && item.source !== "manual" && (
+                    <span style={{ fontSize:9, fontWeight:700, letterSpacing:1,
+                      color: SOURCE_COLOR[item.source] || S.dim, marginRight:8 }}>
+                      {SOURCE_LABEL[item.source] || item.source.toUpperCase()}
+                    </span>
+                  )}
+                  <button onClick={() => remove(item.id)}
+                    style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 4px" }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Shopping list — done ── */}
+          {done.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:S.dimmer, padding:"4px 4px 8px" }}>
+                DONE · {done.length}
+              </div>
+              {done.map(item => (
+                <div key={item.id} style={{ display:"flex", alignItems:"center", background:S.panel,
+                  border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, opacity:0.55 }}>
+                  <button onClick={() => toggle(item.id)}
+                    style={{ width:22, height:22, borderRadius:6, background:S.green,
+                      border:"2px solid "+S.green, marginRight:12, color:"#0a0c0f", fontSize:12,
+                      fontWeight:700, cursor:"pointer", padding:0, flexShrink:0 }}>✓</button>
+                  <span style={{ flex:1, fontSize:13, color:S.dim, textDecoration:"line-through" }}>
+                    {item.name}
+                    {item.quantity != null &&
+                      <span style={{ marginLeft:5 }}>{item.quantity}{item.unit ? " "+item.unit : ""}</span>}
+                  </span>
+                  <button onClick={() => remove(item.id)}
+                    style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 4px" }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {autoLow.length === 0 && groceryList.length === 0 && (
+            <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
+              All stocked up! Add items above.
+            </div>
+          )}
+
+          {done.length > 0 && (
+            <button onClick={doneShopping}
+              style={{ width:"100%", background:S.panel, border:"1px solid "+S.border,
+                color:S.dim, padding:"12px", borderRadius:10, fontSize:11,
+                fontWeight:600, letterSpacing:1, cursor:"pointer", marginTop:6 }}>
+              DONE SHOPPING · CLEAR {done.length} ITEM{done.length !== 1 ? "S" : ""}
             </button>
           )}
         </div>
