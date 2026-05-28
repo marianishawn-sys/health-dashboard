@@ -1,10 +1,32 @@
-# Nutrition Concierge — v6.2.3
+# Nutrition Concierge — v7.0.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
 **Live:** https://marianishawn-sys.github.io/health-dashboard/
 
-## What's in v6.2.x
+## What's in v7.0.x — Closed-loop Inventory System
+
+### M1 (v7.0.0) — Ingredient Registry + Pantry Inventory
+- **Ingredient registry** (`ingredients[]`) — canonical items with `id`, `name`, `defaultUnit`, `category`. All pantry entries and (future) recipe ingredients reference registry by `itemId` — no free-text name matching at runtime.
+- **Schema v4 migration** — idempotent, runs on load. Preserves existing pantry items, name-matches to seed registry, merges 26 seed inventory entries for first-time installs.
+- **25 seeded ingredients** — Freezer (strip loin, chicken thigh, chicken breast, venison, pickerel, shrimp, BBQ sausage, turkey breast, round roast, beef ribs, ground bison), Fridge (eggs, bacon, Greek yogurt, cottage cheese, Grana Padano, Friulano, cheddar, mozzarella, beef stock, sweet potato), Pantry (EVOO, pasta, olives, honey, sourdough starter).
+- **New pantry UI** — grouped by Freezer / Fridge / Pantry. Two tracking modes:
+  - **Count** — inline ±stepper with unit. Border turns 🟡 yellow when ≤ par level, 🔴 red at 0.
+  - **State** — have / low / out pill toggles. Border reflects state.
+- **Expiry tracking** — per-item date picker with N/A checkbox. Items expiring within 3 days show yellow border; expired items show red border.
+- **"Never flag" items** — e.g. sourdough starter gets no status colour, no expiry prompt.
+- **Show flagged** toggle — surfaces all 🟡/🔴 items regardless of scroll position.
+- **Pantry scan + manual add** — AI scan links to registry by name match; manual add creates registry entry + pantry item in one step.
+- **Unit conversion helpers** — `toBaseUnit`/`fromBaseUnit` for weight/volume/count families (used in M4 demand calc).
+
+## Roadmap
+
+- **M2** — Grocery list revamp: auto-adds 🟡/🔴 items, source badges (low/plan/coach/manual), "Done shopping" flow
+- **M3** — Recipe library: structured recipes referencing ingredient registry, AI text parser
+- **M4** — Meal plan builder in Grocery tab, demand calculation, shortfall auto-added to grocery list
+- **M5** — Coach ingest (drain-and-delete from Drive), upgrade Drive scope to `drive`
+
+## What was in v6.2.x
 
 - **Internet macro search** — Open Food Facts search bar at the top of Manual Entry. Type a food name, tap 🔍 (or press Enter), see up to 5 results with macros per 100g. Tap a result to auto-fill all fields. Results cached in localStorage. Free, no API key.
 - **Fibre field on Manual Entry** — optional fibre (g) input alongside the 4 macro fields. Auto-populated from search results.
@@ -45,6 +67,7 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
 | v1 | original | bare logs/grocery/pantry |
 | v2 | v5 | adds `foods` array |
 | v3 | v6 | renames pantry/grocery fields; adds `schema_version: 3` |
+| v4 | v7 M1 | adds `ingredients[]` registry; pantry entries get `itemId`, `trackingType`, `quantity`/`state`, `parLevel`, `expiry`, `expiryNA` |
 
 Migrations are idempotent and run automatically on load.
 
@@ -58,13 +81,6 @@ git push origin main
 ```
 
 On phone: hard-refresh the PWA, or remove and re-add to home screen if it serves stale cache.
-
-## Phases remaining
-
-- **Phase 2** — Recipe Builder (log-once / save-to-library / save-to-library+Drive)
-- **Phase 3** — Weight log, 7-day rolling average, 30-day sparkline
-- **Phase 4** — Share Day (plain text + Web Share API)
-- **Phase 5** — Polish: swipe-to-delete, toast for missing API key, Today quick-jump
 
 ## Cost notes
 

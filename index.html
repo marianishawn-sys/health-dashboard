@@ -71,6 +71,25 @@
     const gramsToUnit = (g, unit) =>
       unit === "oz" ? round(g / G_PER_OZ, 1) : unit === "lb" ? round(g / G_PER_LB, 1) : Math.round(g);
 
+    const SOON_DAYS = 3; // days-to-expiry threshold for 🟡 warning
+
+    // Unit families + conversion for demand calc (M4)
+    const ML_PER_CUP = 236.588, ML_PER_TBSP = 14.787, ML_PER_TSP = 4.929;
+    const UNIT_FAMILIES = { weight: ["g","kg","oz","lb"], volume: ["ml","L","cup","tbsp","tsp"] };
+    const getUnitFamily = (unit) => { for (const [f,us] of Object.entries(UNIT_FAMILIES)) if (us.includes(unit)) return f; return "count"; };
+    const toBaseUnit = (qty, unit) => {
+      if (unit==="kg") return qty*1000; if (unit==="oz") return qty*G_PER_OZ;
+      if (unit==="lb") return qty*G_PER_LB; if (unit==="L") return qty*1000;
+      if (unit==="cup") return qty*ML_PER_CUP; if (unit==="tbsp") return qty*ML_PER_TBSP;
+      if (unit==="tsp") return qty*ML_PER_TSP; return qty;
+    };
+    const fromBaseUnit = (base, unit) => {
+      if (unit==="kg") return round(base/1000,3); if (unit==="oz") return round(base/G_PER_OZ,1);
+      if (unit==="lb") return round(base/G_PER_LB,2); if (unit==="L") return round(base/1000,2);
+      if (unit==="cup") return round(base/ML_PER_CUP,1); if (unit==="tbsp") return round(base/ML_PER_TBSP,1);
+      if (unit==="tsp") return round(base/ML_PER_TSP,1); return round(base,1);
+    };
+
     // ───────────────────── PRE-SEED FOOD LIBRARY ─────────────────────
     // Per-100g unless otherwise indicated. Sources: USDA + commodity averages.
     const SEED_FOODS = [
@@ -160,6 +179,75 @@
       // Beverages
       { name: "Coffee, black", brand: "", refPortion: { grams: 240, label: "1 mug" }, per100g: { cal: 1, protein: 0.1, carbs: 0, fat: 0 }, category: "beverage", tags: ["coffee"] },
       { name: "Espresso", brand: "", refPortion: { grams: 30, label: "1 shot" }, per100g: { cal: 9, protein: 0.5, carbs: 1.7, fat: 0.2 }, category: "beverage", tags: ["coffee","espresso"] },
+    ];
+
+    // ───────────────────── INGREDIENT REGISTRY SEED ─────────────────────
+    const SEED_INGREDIENTS = [
+      // Freezer
+      { id:"ing_strip_loin",       name:"Strip loin",          defaultUnit:"portions", category:"freezer" },
+      { id:"ing_chicken_thigh",    name:"Chicken thighs",      defaultUnit:"portions", category:"freezer" },
+      { id:"ing_chicken_breast_f", name:"Chicken breasts",     defaultUnit:"portions", category:"freezer" },
+      { id:"ing_venison",          name:"Venison",             defaultUnit:"portions", category:"freezer" },
+      { id:"ing_pickerel",         name:"Pickerel",            defaultUnit:"portions", category:"freezer" },
+      { id:"ing_shrimp",           name:"Shrimp",              defaultUnit:"bags",     category:"freezer" },
+      { id:"ing_bbq_sausage",      name:"BBQ sausage",         defaultUnit:"portions", category:"freezer" },
+      { id:"ing_turkey_breast",    name:"Turkey breast",       defaultUnit:"portions", category:"freezer" },
+      { id:"ing_round_roast",      name:"Round roast",         defaultUnit:"portions", category:"freezer" },
+      { id:"ing_beef_ribs",        name:"Beef back ribs",      defaultUnit:"racks",    category:"freezer" },
+      { id:"ing_ground_bison",     name:"Ground bison",        defaultUnit:"g",        category:"freezer" },
+      // Fridge
+      { id:"ing_eggs",             name:"Free-run eggs",       defaultUnit:"eggs",      category:"fridge" },
+      { id:"ing_bacon",            name:"Bacon",               defaultUnit:"pkg",       category:"fridge" },
+      { id:"ing_greek_yogurt",     name:"Greek yogurt",        defaultUnit:"containers",category:"fridge" },
+      { id:"ing_cottage_cheese",   name:"Cottage cheese",      defaultUnit:"containers",category:"fridge" },
+      { id:"ing_grana_padano",     name:"Grana Padano",        defaultUnit:"portions",  category:"fridge" },
+      { id:"ing_friulano",         name:"Friulano",            defaultUnit:"portions",  category:"fridge" },
+      { id:"ing_cheddar",          name:"Cheddar",             defaultUnit:"portions",  category:"fridge" },
+      { id:"ing_mozzarella",       name:"Mozzarella",          defaultUnit:"portions",  category:"fridge" },
+      { id:"ing_beef_stock",       name:"Beef stock",          defaultUnit:"cartons",   category:"fridge" },
+      { id:"ing_sweet_potato",     name:"Sweet potatoes",      defaultUnit:"portions",  category:"fridge" },
+      // Pantry staples
+      { id:"ing_evoo",             name:"Extra virgin olive oil",defaultUnit:"bottles", category:"pantry" },
+      { id:"ing_pasta",            name:"Pasta",               defaultUnit:"portions",  category:"pantry" },
+      { id:"ing_olives",           name:"Olives",              defaultUnit:"jars",      category:"pantry" },
+      { id:"ing_honey",            name:"Honey",               defaultUnit:"jars",      category:"pantry" },
+      { id:"ing_sourdough_starter",name:"Sourdough starter",   defaultUnit:"portions",  category:"pantry" },
+    ];
+
+    // ───────────────────── PANTRY INVENTORY SEED ─────────────────────
+    // Starting template — sir adjusts in-app after Saturday's shop.
+    const SEED_PANTRY = [
+      // FREEZER — count, expiryNA
+      { itemId:"ing_strip_loin",       trackingType:"count", quantity:10,  unit:"portions", parLevel:4, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_chicken_thigh",    trackingType:"count", quantity:20,  unit:"portions", parLevel:6, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_chicken_breast_f", trackingType:"count", quantity:7,   unit:"portions", parLevel:4, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_venison",          trackingType:"count", quantity:6,   unit:"portions", parLevel:2, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_pickerel",         trackingType:"count", quantity:8,   unit:"portions", parLevel:4, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_shrimp",           trackingType:"count", quantity:3,   unit:"bags",     parLevel:1, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_bbq_sausage",      trackingType:"count", quantity:6,   unit:"portions", parLevel:2, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_turkey_breast",    trackingType:"count", quantity:1,   unit:"portions", parLevel:1, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_round_roast",      trackingType:"count", quantity:1,   unit:"portions", parLevel:1, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_beef_ribs",        trackingType:"count", quantity:1,   unit:"racks",    parLevel:0, state:null, expiry:null, expiryNA:true },
+      { itemId:"ing_ground_bison",     trackingType:"count", quantity:226, unit:"g",        parLevel:0, state:null, expiry:null, expiryNA:true },
+      // FRIDGE — count
+      { itemId:"ing_eggs",           trackingType:"count", quantity:24, unit:"eggs",       parLevel:6, state:null, expiry:null, expiryNA:false },
+      { itemId:"ing_bacon",          trackingType:"count", quantity:1,  unit:"pkg",        parLevel:1, state:null, expiry:null, expiryNA:false },
+      { itemId:"ing_greek_yogurt",   trackingType:"count", quantity:1,  unit:"containers", parLevel:1, state:null, expiry:null, expiryNA:false },
+      { itemId:"ing_cottage_cheese", trackingType:"count", quantity:1,  unit:"containers", parLevel:1, state:null, expiry:null, expiryNA:false },
+      { itemId:"ing_beef_stock",     trackingType:"count", quantity:2,  unit:"cartons",    parLevel:1, state:null, expiry:null, expiryNA:false },
+      // FRIDGE — state (cheeses)
+      { itemId:"ing_grana_padano", trackingType:"state", quantity:null, unit:"portions", parLevel:null, state:"have", expiry:null, expiryNA:false },
+      { itemId:"ing_friulano",     trackingType:"state", quantity:null, unit:"portions", parLevel:null, state:"have", expiry:null, expiryNA:false },
+      { itemId:"ing_cheddar",      trackingType:"state", quantity:null, unit:"portions", parLevel:null, state:"have", expiry:null, expiryNA:false },
+      { itemId:"ing_mozzarella",   trackingType:"state", quantity:null, unit:"portions", parLevel:null, state:"have", expiry:null, expiryNA:false },
+      // PRODUCE
+      { itemId:"ing_sweet_potato", trackingType:"count", quantity:5, unit:"portions", parLevel:3, state:null, expiry:null, expiryNA:false },
+      // PANTRY STAPLES — state, expiryNA
+      { itemId:"ing_evoo",              trackingType:"state", quantity:null, unit:"bottles", parLevel:null, state:"have", expiry:null, expiryNA:true },
+      { itemId:"ing_pasta",             trackingType:"state", quantity:null, unit:"portions",parLevel:null, state:"have", expiry:null, expiryNA:true },
+      { itemId:"ing_olives",            trackingType:"state", quantity:null, unit:"jars",    parLevel:null, state:"have", expiry:null, expiryNA:true },
+      { itemId:"ing_honey",             trackingType:"state", quantity:null, unit:"jars",    parLevel:null, state:"have", expiry:null, expiryNA:true },
+      { itemId:"ing_sourdough_starter", trackingType:"state", quantity:null, unit:"portions",parLevel:null, state:"have", expiry:null, expiryNA:true, neverFlag:true },
     ];
 
     const seedFoodsWithIds = () => SEED_FOODS.map((f, i) => ({
@@ -311,6 +399,69 @@
       };
     };
 
+    // ───────────────────── DATA MIGRATION v4 ─────────────────────
+    // Introduces ingredients registry + new pantry schema.
+    // Preserves all existing pantry items; merges seed inventory for items not already present.
+    const migrateToV4 = (data) => {
+      if (!data || (data.schema_version || 0) >= 4) return data;
+
+      // Build registry starting from seeds
+      const ingMap = {};
+      const newIngredients = SEED_INGREDIENTS.map(i => { ingMap[i.id] = i; return { ...i }; });
+
+      // Convert old pantry items → new schema, creating registry entries as needed
+      const newPantry = [];
+      (data.pantry || []).forEach(old => {
+        if (old.itemId) { newPantry.push(old); return; } // already migrated
+        const nameLower = (old.name || "").toLowerCase().trim();
+        // Try to match seed ingredient by name
+        let ing = SEED_INGREDIENTS.find(i =>
+          i.name.toLowerCase() === nameLower ||
+          nameLower.includes(i.name.toLowerCase()) ||
+          i.name.toLowerCase().includes(nameLower.split(" ")[0])
+        );
+        let itemId;
+        if (ing) {
+          itemId = ing.id;
+        } else {
+          itemId = "ing_" + old.id;
+          if (!ingMap[itemId]) {
+            const cat = (old.category || "PANTRY").toLowerCase();
+            const newIng = { id: itemId, name: old.name || "Unknown", defaultUnit: "portions",
+              category: cat === "freezer" || cat === "fridge" ? cat : "pantry" };
+            ingMap[itemId] = newIng;
+            newIngredients.push(newIng);
+          }
+        }
+        // Parse old free-text quantity string
+        const qtyStr = String(old.quantity || "");
+        const m = qtyStr.match(/^(\d+\.?\d*)\s*([a-zA-Z]+)?/);
+        const qty = m ? parseFloat(m[1]) : null;
+        const unit = (m && m[2]) ? m[2] : (ingMap[itemId] ? ingMap[itemId].defaultUnit : "portions");
+        newPantry.push({
+          id: old.id,
+          itemId,
+          trackingType: qty != null ? "count" : "state",
+          quantity: qty,
+          unit,
+          state: qty == null ? "have" : null,
+          parLevel: null,
+          expiry: old.expiry || null,
+          expiryNA: !old.expiry,
+        });
+      });
+
+      // Merge seeded pantry items for any itemId not already present
+      const coveredIds = new Set(newPantry.map(p => p.itemId));
+      SEED_PANTRY.forEach(sp => {
+        if (!coveredIds.has(sp.itemId)) {
+          newPantry.push({ id: uid("pan"), ...sp });
+        }
+      });
+
+      return { ...data, schema_version: 4, ingredients: newIngredients, pantry: newPantry };
+    };
+
     // ───────────────────── MACRO CALC ─────────────────────
     const scaleMacros = (per100g, grams) => ({
       cal: round(per100g.cal * grams / 100),
@@ -419,10 +570,11 @@
           const raw = await readDriveFile(fileId);
           const v2 = migrateToV2(raw);
           const v3 = migrateToV3(v2);
-          const migrated = backfillSeedFibre(v3);
+          const v3b = backfillSeedFibre(v3);
+          const migrated = migrateToV4(v3b);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
           setData(migrated);
-          if (!raw || raw.version !== 2 || raw.schema_version !== 3 || migrated !== v3) {
+          if (!raw || (raw.schema_version || 0) < 4 || migrated !== v3b) {
             await writeDriveFile(fileId, migrated);
           }
         } catch (e) {
@@ -1784,110 +1936,241 @@
       );
     }
 
-    // ───────────────────── PANTRY TAB (v4 preserved + scan) ─────────────────────
+    // ───────────────────── PANTRY TAB v7 ─────────────────────
     function PantryTab({ data, setData, apiKey, onMissingKey }) {
-      const [showAdd, setShowAdd] = useState(false);
-      const [scanMode, setScanMode] = useState(null); // null | "single" | "bulk"
-      const [newName, setNewName] = useState("");
-      const [newCategory, setNewCategory] = useState("PANTRY");
+      const [scanMode, setScanMode]     = useState(null);
+      const [showFlagged, setShowFlagged] = useState(false);
+      const [expandedId, setExpandedId] = useState(null);
+      const [editQtyId, setEditQtyId]   = useState(null);
+      const [showAdd, setShowAdd]       = useState(false);
+      const [addName, setAddName]       = useState("");
+      const [addCat, setAddCat]         = useState("fridge");
+      const [addTracking, setAddTracking] = useState("count");
+      const [addQty, setAddQty]         = useState("");
+      const [addUnit, setAddUnit]       = useState("portions");
+      const [addPar, setAddPar]         = useState("");
 
-      const remove = (id) => {
-        const pantry = (data.pantry || []).filter(p => p.id !== id);
-        setData({ ...data, pantry });
+      const ingredients = data.ingredients || [];
+      const pantry      = data.pantry      || [];
+      const getIng = (itemId) => ingredients.find(i => i.id === itemId) || { name: itemId || "Unknown", category: "pantry" };
+
+      const getStatus = (item) => {
+        if (item.neverFlag) return "neutral";
+        if (item.trackingType === "state") {
+          if (item.state === "out") return "red";
+          if (item.state === "low") return "yellow";
+          if (item.expiryNA) return "neutral";
+          return "green";
+        }
+        const qty = item.quantity || 0;
+        if (qty <= 0) return "red";
+        if (item.expiry && !item.expiryNA) {
+          const days = (new Date(item.expiry + "T12:00:00") - new Date()) / 86400000;
+          if (days < 0) return "red";
+          if (days <= SOON_DAYS) return "yellow";
+        }
+        if (item.parLevel != null && item.parLevel > 0 && qty <= item.parLevel) return "yellow";
+        if (item.expiryNA && !item.parLevel) return "neutral";
+        return "green";
       };
 
-      const addItem = (item) => {
-        const pantry = [...(data.pantry || []), { id: uid("p"), addedAt: new Date().toISOString(), ...item }];
-        setData({ ...data, pantry });
-      };
+      const STATUS_COLOR = { green:S.green, yellow:S.accent, red:S.red, neutral:S.dimmer };
+      const getStep = (unit) => (unit==="g"||unit==="ml") ? 50 : (unit==="kg"||unit==="L") ? 0.5 : 1;
 
-      const addItems = (items) => {
-        const pantry = [...(data.pantry || []), ...items.map(i => ({ id: uid("p"), addedAt: new Date().toISOString(), ...i }))];
-        setData({ ...data, pantry });
+      const adjustQty = (id, delta) => {
+        const updated = pantry.map(p => p.id!==id ? p : { ...p, quantity: Math.max(0, round((p.quantity||0)+delta,1)) });
+        setData({ ...data, pantry: updated });
+      };
+      const setQtyDirect = (id, val) => {
+        const n = parseFloat(val);
+        if (isNaN(n)||n<0) return;
+        const updated = pantry.map(p => p.id!==id ? p : { ...p, quantity: round(n,1) });
+        setData({ ...data, pantry: updated });
+      };
+      const setStateVal = (id, state) => {
+        const updated = pantry.map(p => p.id!==id ? p : { ...p, state });
+        setData({ ...data, pantry: updated });
+      };
+      const setExpiryVal = (id, expiry, expiryNA) => {
+        const updated = pantry.map(p => p.id!==id ? p : { ...p, expiry: expiryNA ? null : expiry, expiryNA });
+        setData({ ...data, pantry: updated });
+      };
+      const removeItem = (id) => setData({ ...data, pantry: pantry.filter(p => p.id!==id) });
+
+      // Scan result → link to registry
+      const handleScanResult = (rawItems) => {
+        const newIngs = [...ingredients];
+        const newPantry = [...pantry];
+        rawItems.forEach(raw => {
+          const nl = (raw.name||"").toLowerCase();
+          let ing = newIngs.find(i => i.name.toLowerCase()===nl) ||
+                    newIngs.find(i => nl.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(nl.split(" ")[0]));
+          let itemId;
+          if (!ing) {
+            itemId = uid("ing");
+            const cat = (raw.category||"PANTRY").toLowerCase();
+            ing = { id:itemId, name:raw.name||"Unknown", defaultUnit:"portions", category:["freezer","fridge"].includes(cat)?cat:"pantry" };
+            newIngs.push(ing);
+          } else { itemId = ing.id; }
+          const m = String(raw.quantity||"").match(/^(\d+\.?\d*)\s*([a-zA-Z]+)?/);
+          const qty  = m ? parseFloat(m[1]) : null;
+          const unit = (m&&m[2]) ? m[2] : ing.defaultUnit;
+          const par  = qty ? Math.max(1, Math.round(qty*0.3)) : null;
+          const existing = newPantry.find(p => p.itemId===itemId);
+          if (existing) { if (existing.trackingType==="count"&&qty!=null) existing.quantity=qty; }
+          else newPantry.push({ id:uid("pan"), itemId, trackingType:qty!=null?"count":"state",
+            quantity:qty, unit, state:qty!=null?null:"have", parLevel:par, expiry:raw.expiry||null, expiryNA:!raw.expiry });
+        });
+        setData({ ...data, ingredients:newIngs, pantry:newPantry });
+        setScanMode(null);
       };
 
       const handleManualAdd = () => {
-        if (!newName.trim()) return;
-        addItem({ name: newName.trim(), category: newCategory, quantity: "" });
-        setNewName("");
-        setShowAdd(false);
+        if (!addName.trim()) return;
+        const ingId = uid("ing");
+        const newIng = { id:ingId, name:addName.trim(), defaultUnit:addUnit, category:addCat };
+        const qty = parseFloat(addQty);
+        const par = parseFloat(addPar);
+        const newItem = { id:uid("pan"), itemId:ingId, trackingType:addTracking,
+          quantity: addTracking==="count"&&!isNaN(qty) ? qty : null,
+          unit:addUnit, state:addTracking==="state"?"have":null,
+          parLevel:!isNaN(par)?par:null, expiry:null,
+          expiryNA:addCat==="freezer"||addCat==="pantry" };
+        setData({ ...data, ingredients:[...ingredients,newIng], pantry:[...pantry,newItem] });
+        setAddName(""); setAddQty(""); setAddPar(""); setShowAdd(false);
       };
 
-      const handleScanClick = (mode) => {
-        if (!apiKey) { onMissingKey(); return; }
-        setScanMode(mode);
-      };
+      const displayPantry = useMemo(() => {
+        if (!showFlagged) return pantry;
+        const ord = { red:0, yellow:1, green:2, neutral:3 };
+        return [...pantry].sort((a,b) => (ord[getStatus(a)]||3)-(ord[getStatus(b)]||3));
+      }, [pantry, showFlagged, ingredients]);
 
       const grouped = useMemo(() => {
-        const g = { FREEZER: [], FRIDGE: [], PANTRY: [] };
-        (data.pantry || []).forEach(p => {
-          const cat = p.category || "PANTRY";
-          if (!g[cat]) g[cat] = [];
-          g[cat].push(p);
-        });
+        const g = { freezer:[], fridge:[], pantry:[] };
+        displayPantry.forEach(p => { const c=(getIng(p.itemId).category||"pantry"); (g[c]||(g[c]=[])).push(p); });
         return g;
-      }, [data.pantry]);
+      }, [displayPantry, ingredients]);
 
-      if (scanMode) {
-        return <PantryScan mode={scanMode} apiKey={apiKey}
-          onClose={() => setScanMode(null)}
-          onResult={(items) => { addItems(items); setScanMode(null); }} />;
-      }
+      const CAT_LABEL = { freezer:"❄️ FREEZER", fridge:"🧊 FRIDGE", pantry:"🫙 PANTRY" };
+      const abtn = (active, lbl, onClick) => (
+        <button onClick={onClick} style={{ flex:1, padding:"8px 4px", borderRadius:7, border:`1px solid ${active?S.accent:S.border}`, background:active?`${S.accent}22`:S.panel2, color:active?S.accent:S.dim, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>{lbl}</button>
+      );
+
+      if (scanMode) return <PantryScan mode={scanMode} apiKey={apiKey} onClose={() => setScanMode(null)} onResult={handleScanResult} />;
 
       return (
         <div style={{ padding:"14px 16px 24px" }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14 }}>
-            <button onClick={() => handleScanClick("single")} style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}44`, color:S.accent, padding:"12px", borderRadius:10, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-              📷 ADD ITEM
-            </button>
-            <button onClick={() => handleScanClick("bulk")} style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}44`, color:S.accent, padding:"12px", borderRadius:10, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-              📦 BULK SCAN
-            </button>
+          {/* Action buttons */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
+            {[["📷","SCAN","single"],["📦","BULK","bulk"],["＋","ADD",null]].map(([icon,lbl,mode]) => (
+              <button key={lbl} onClick={() => { if (mode) { if (!apiKey){onMissingKey();return;} setScanMode(mode); } else setShowAdd(v=>!v); }}
+                style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}44`, color:S.accent, padding:"11px 4px", borderRadius:10, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                {icon} {lbl}
+              </button>
+            ))}
           </div>
-          <button onClick={() => setShowAdd(!showAdd)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, color:S.text, padding:"10px", borderRadius:10, fontSize:11, fontWeight:600, letterSpacing:1, cursor:"pointer", marginBottom:14 }}>
-            {showAdd ? "× CLOSE" : "+ MANUAL ADD"}
+          <button onClick={() => setShowFlagged(v=>!v)} style={{ width:"100%", background:showFlagged?`${S.accent}18`:S.panel, border:`1px solid ${showFlagged?S.accent:S.border}`, color:showFlagged?S.accent:S.dim, padding:"7px", borderRadius:8, fontSize:9, fontWeight:600, letterSpacing:1.5, cursor:"pointer", marginBottom:12 }}>
+            {showFlagged?"● FLAGGED FIRST":"○ FLAGGED FIRST"}
           </button>
 
+          {/* Manual add form */}
           {showAdd && (
-            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:12, marginBottom:14 }}>
-              <input type="text" placeholder="Item name" value={newName} onChange={e => setNewName(e.target.value)}
+            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:12, marginBottom:12 }}>
+              <input type="text" placeholder="Item name *" value={addName} onChange={e=>setAddName(e.target.value)} autoFocus
                 style={{ width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", marginBottom:8 }} />
-              <div style={{ display:"flex", gap:6, marginBottom:8 }}>
-                {["FREEZER","FRIDGE","PANTRY"].map(c => (
-                  <button key={c} onClick={() => setNewCategory(c)} style={{ flex:1, background: newCategory === c ? `${S.accent}22` : S.panel2, border:`1px solid ${newCategory === c ? S.accent : S.border}`, color: newCategory === c ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:1, cursor:"pointer" }}>
-                    {c}
-                  </button>
-                ))}
+              <div style={{ display:"flex", gap:5, marginBottom:7 }}>
+                {["freezer","fridge","pantry"].map(c => abtn(addCat===c, c.toUpperCase(), ()=>setAddCat(c)))}
               </div>
-              <button onClick={handleManualAdd} disabled={!newName.trim()} style={{ width:"100%", background: newName.trim() ? S.accent : S.panel2, color: newName.trim() ? "#0a0c0f" : S.dim, border:"none", borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, letterSpacing:1, cursor: newName.trim() ? "pointer" : "not-allowed" }}>
+              <div style={{ display:"flex", gap:5, marginBottom:7 }}>
+                {abtn(addTracking==="count","COUNT",()=>setAddTracking("count"))}
+                {abtn(addTracking==="state","HAVE/LOW/OUT",()=>setAddTracking("state"))}
+              </div>
+              {addTracking==="count" && (
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:7 }}>
+                  {[["Qty",addQty,setAddQty],["Unit",addUnit,setAddUnit],["Par",addPar,setAddPar]].map(([ph,v,sv])=>(
+                    <input key={ph} type={ph==="Unit"?"text":"number"} placeholder={ph} value={v} onChange={e=>sv(e.target.value)}
+                      style={{ background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"8px 6px", color:S.text, fontSize:12, outline:"none", textAlign:"center" }} />
+                  ))}
+                </div>
+              )}
+              <button onClick={handleManualAdd} disabled={!addName.trim()} style={{ width:"100%", background:addName.trim()?S.accent:S.panel2, color:addName.trim()?"#0a0c0f":S.dim, border:"none", borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:addName.trim()?"pointer":"not-allowed" }}>
                 ADD TO PANTRY
               </button>
             </div>
           )}
 
-          {Object.entries(grouped).map(([cat, items]) => items.length > 0 && (
-            <div key={cat} style={{ marginBottom:14 }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>{cat} · {items.length}</div>
-              {items.map(p => (
-                <div key={p.id} style={{ display:"flex", alignItems:"center", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</div>
-                    {(p.quantity || p.expiry) && (
-                      <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>
-                        {p.quantity && <span>{p.quantity}</span>}
-                        {p.quantity && p.expiry && <span> · </span>}
-                        {p.expiry && <span>exp {p.expiry}</span>}
+          {/* Item list */}
+          {Object.entries(grouped).map(([cat, items]) => items.length===0 ? null : (
+            <div key={cat} style={{ marginBottom:16 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 0 8px", fontWeight:700 }}>{CAT_LABEL[cat]||cat.toUpperCase()} · {items.length}</div>
+              {items.map(item => {
+                const ing    = getIng(item.itemId);
+                const status = getStatus(item);
+                const dot    = STATUS_COLOR[status];
+                const step   = getStep(item.unit||"portions");
+                const isExp  = expandedId===item.id;
+                return (
+                  <div key={item.id} style={{ background:S.panel, border:`1px solid ${status==="red"?"rgba(248,113,113,0.3)":status==="yellow"?"rgba(200,169,110,0.25)":S.border}`, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <div style={{ width:8, height:8, borderRadius:"50%", background:dot, flexShrink:0 }} />
+                      <div style={{ flex:1, fontSize:13, color:S.text, fontWeight:500, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ing.name}</div>
+                      {item.trackingType==="count" ? (
+                        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                          <button onClick={()=>adjustQty(item.id,-step)} style={{ width:28,height:28,borderRadius:7,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:15,cursor:"pointer",lineHeight:1 }}>−</button>
+                          {editQtyId===item.id ? (
+                            <input type="number" autoFocus defaultValue={item.quantity}
+                              onBlur={e=>{setQtyDirect(item.id,e.target.value);setEditQtyId(null);}}
+                              onKeyDown={e=>{if(e.key==="Enter"){setQtyDirect(item.id,e.target.value);setEditQtyId(null);}}}
+                              style={{ width:46,textAlign:"center",background:S.panel2,border:`1px solid ${S.accent}`,borderRadius:7,padding:"4px 2px",color:S.text,fontSize:13,fontWeight:700,outline:"none" }} />
+                          ) : (
+                            <button onClick={()=>setEditQtyId(item.id)} style={{ minWidth:36,textAlign:"center",background:"none",border:"none",color:S.text,fontSize:13,fontWeight:700,cursor:"pointer",padding:"4px 2px" }}>
+                              {item.quantity}
+                            </button>
+                          )}
+                          <span style={{ fontSize:9,color:S.dim,maxWidth:40,overflow:"hidden",textOverflow:"ellipsis" }}>{item.unit}</span>
+                          <button onClick={()=>adjustQty(item.id,step)} style={{ width:28,height:28,borderRadius:7,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:15,cursor:"pointer",lineHeight:1 }}>+</button>
+                        </div>
+                      ) : (
+                        <div style={{ display:"flex", gap:4 }}>
+                          {["have","low","out"].map(s => {
+                            const sc = s==="out"?S.red:s==="low"?S.accent:S.green;
+                            return <button key={s} onClick={()=>setStateVal(item.id,s)} style={{ padding:"4px 7px",borderRadius:7,border:`1px solid ${item.state===s?sc:S.border}`,background:item.state===s?`${sc}22`:S.panel2,color:item.state===s?sc:S.dim,fontSize:9,fontWeight:700,letterSpacing:0.5,cursor:"pointer" }}>{s.toUpperCase()}</button>;
+                          })}
+                        </div>
+                      )}
+                      <button onClick={()=>removeItem(item.id)} style={{ background:"none",border:"none",color:S.dimmer,fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0 }}>×</button>
+                    </div>
+                    {/* Sub-row */}
+                    <div style={{ display:"flex",alignItems:"center",gap:10,marginTop:5,paddingLeft:16 }}>
+                      {item.trackingType==="count"&&item.parLevel!=null&&(
+                        <span style={{ fontSize:9,color:S.dimmer }}>par {item.parLevel}</span>
+                      )}
+                      <button onClick={()=>setExpandedId(isExp?null:item.id)} style={{ fontSize:9,color:item.expiry&&!item.expiryNA?dot:S.dimmer,background:"none",border:"none",cursor:"pointer",padding:0,letterSpacing:0.5 }}>
+                        {item.expiryNA?"EXP N/A":item.expiry?`EXP ${item.expiry}`:"SET EXPIRY"}
+                      </button>
+                    </div>
+                    {/* Expiry editor */}
+                    {isExp && (
+                      <div style={{ display:"flex",alignItems:"center",gap:10,marginTop:7,paddingLeft:16 }}>
+                        <label style={{ display:"flex",alignItems:"center",gap:6,fontSize:10,color:S.dim,cursor:"pointer" }}>
+                          <input type="checkbox" checked={!!item.expiryNA} onChange={e=>setExpiryVal(item.id,item.expiry,e.target.checked)} style={{ accentColor:S.accent }} />
+                          N/A
+                        </label>
+                        {!item.expiryNA && (
+                          <input type="date" value={item.expiry||""} onChange={e=>setExpiryVal(item.id,e.target.value,false)}
+                            style={{ background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"5px 8px",color:S.text,fontSize:11,outline:"none" }} />
+                        )}
                       </div>
                     )}
                   </div>
-                  <button onClick={() => remove(p.id)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 4px" }}>×</button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ))}
 
-          {(data.pantry || []).length === 0 && (
-            <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
+          {pantry.length===0 && (
+            <div style={{ padding:"40px 20px",textAlign:"center",color:S.dim,fontSize:13 }}>
               Pantry is empty. Scan an item or add manually.
             </div>
           )}
