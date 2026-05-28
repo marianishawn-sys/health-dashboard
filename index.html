@@ -504,6 +504,25 @@
         return newFood;
       };
 
+      const logMultipleScanned = (slot, scannedFoods) => {
+        const now = new Date().toISOString();
+        let foodsList = [...(data.foods || [])];
+        const newEntries = [];
+        scannedFoods.forEach(food => {
+          const grams = food._scannedGrams;
+          const { _scannedGrams, ...cleanFood } = food;
+          const newFood = { ...cleanFood, lastUsed: now, useCount: (cleanFood.useCount || 0) + 1 };
+          const idx = foodsList.findIndex(f => f.id === newFood.id);
+          if (idx >= 0) foodsList[idx] = newFood; else foodsList.push(newFood);
+          const m = scaleMacros(newFood.per100g, grams);
+          newEntries.push({ id: uid("log"), foodId: newFood.id, name: newFood.name, brand: newFood.brand || "", grams, ...m, ts: now });
+        });
+        const day = data.logs[selectedDate] || {};
+        const meal = [...(day[slot] || []), ...newEntries];
+        saveData({ ...data, foods: foodsList, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } } });
+        setShowFoodPicker(false);
+      };
+
       const removeLogEntry = (slot, entryId) => {
         const day = data.logs[selectedDate] || {};
         const meal = (day[slot] || []).filter(e => e.id !== entryId);
@@ -622,6 +641,7 @@
               onClose={() => setShowFoodPicker(false)}
               onLog={(food, grams, notes, preferredUnit) => { useFood(foodPickerSlot, food, grams, notes, preferredUnit); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
+              onLogAll={(foods) => logMultipleScanned(foodPickerSlot, foods)}
             />
           )}
 
@@ -852,7 +872,7 @@
     }
 
     // ───────────────────── FOOD PICKER ─────────────────────
-    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood }) {
+    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll }) {
       const [query, setQuery] = useState("");
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
@@ -918,6 +938,7 @@
                 onMissingKey={onMissingKey}
                 onCancel={() => setMode("search")}
                 onResult={handleScanResult}
+                onLogAll={onLogAll}
               />
             )}
 
@@ -1412,11 +1433,12 @@
     }
 
     // ───────────────────── MEAL SCAN ─────────────────────
-    function MealScan({ apiKey, onMissingKey, onCancel, onResult }) {
+    function MealScan({ apiKey, onMissingKey, onCancel, onResult, onLogAll }) {
       const [phase, setPhase] = useState("capture"); // capture | analyzing | review | error
       const [image, setImage] = useState(null);
       const [results, setResults] = useState([]);
       const [error, setError] = useState("");
+      const [refreshingId, setRefreshingId] = useState(null);
       const cameraRef = useRef(null);
       const fileRef = useRef(null);
 
@@ -1500,22 +1522,49 @@
         }));
       };
 
-      const confirmFirst = () => {
+      const refreshMacros = async (id, name) => {
+        if (!name.trim()) return;
+        setRefreshingId(id);
+        try {
+          const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+            encodeURIComponent(name.trim()) + "&search_simple=1&action=process&json=1&page_size=3&fields=product_name,brands,nutriments";
+          const res = await fetch(url);
+          const json = await res.json();
+          const products = (json.products || []).filter(p => p.nutriments && p.nutriments["energy-kcal_100g"] != null);
+          if (products.length > 0) {
+            const p = products[0];
+            setResults(prev => prev.map(r => r.id !== id ? r : {
+              ...r,
+              per100g: {
+                cal: Math.round(p.nutriments["energy-kcal_100g"] || 0),
+                protein: round(p.nutriments["proteins_100g"] || 0, 1),
+                carbs: round(p.nutriments["carbohydrates_100g"] || 0, 1),
+                fat: round(p.nutriments["fat_100g"] || 0, 1),
+              },
+            }));
+          }
+        } catch(e) {}
+        setRefreshingId(null);
+      };
+
+      const confirmAll = () => {
         const selected = results.filter(r => r.selected);
         if (selected.length === 0) return;
-        // For meal scan: convert each selected to a food, log the first; user can re-scan or pick from library for others
-        const first = selected[0];
-        const food = {
+        const toFood = r => ({
           id: uid("f"),
-          name: first.name,
-          brand: first.brand || "",
-          refPortion: { grams: first.estimatedGrams, label: first.estimatedGrams + "g (scanned)" },
-          per100g: first.per100g,
+          name: r.name,
+          brand: r.brand || "",
+          refPortion: { grams: r.estimatedGrams, label: r.estimatedGrams + "g (scanned)" },
+          per100g: r.per100g,
           category: "scan",
           tags: [],
           source: "ai_scan",
-        };
-        onResult(food);
+        });
+        if (selected.length === 1) {
+          onResult(toFood(selected[0]));
+        } else {
+          onLogAll(selected.map(r => ({ ...toFood(r), _scannedGrams: r.estimatedGrams })));
+        }
       };
 
       if (phase === "capture") {
@@ -1580,12 +1629,15 @@
           <div style={{ overflowY:"auto", maxHeight:"calc(90vh - 200px)", paddingRight:2 }}>
             {results.map(r => (
               <div key={r.id} style={{ background: r.selected ? S.panel : S.panel2, border:`1px solid ${r.selected ? S.borderHi : S.border}`, borderRadius:10, padding:12, marginBottom:8, opacity: r.selected ? 1 : 0.55 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                  <button onClick={() => toggleResult(r.id)} style={{ width:22, height:22, borderRadius:6, background: r.selected ? S.accent : "transparent", border:`2px solid ${r.selected ? S.accent : S.dim}`, color:"#0a0c0f", fontSize:12, fontWeight:700, cursor:"pointer", padding:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                  <button onClick={() => toggleResult(r.id)} style={{ flexShrink:0, width:22, height:22, borderRadius:6, background: r.selected ? S.accent : "transparent", border:`2px solid ${r.selected ? S.accent : S.dim}`, color:"#0a0c0f", fontSize:12, fontWeight:700, cursor:"pointer", padding:0 }}>
                     {r.selected ? "✓" : ""}
                   </button>
-                  <input type="text" value={r.name} onChange={e => updateResult(r.id, "name", e.target.value)} style={{ flex:1, background:"transparent", border:"none", color:S.text, fontSize:14, fontWeight:500, outline:"none", padding:0 }} />
-                  <span style={{ fontSize:9, letterSpacing:1, color: r.confidence === "HIGH" ? S.green : r.confidence === "MEDIUM" ? S.accent : S.red }}>{r.confidence}</span>
+                  <input type="text" value={r.name} onChange={e => updateResult(r.id, "name", e.target.value)} style={{ flex:1, background:"transparent", border:"none", color:S.text, fontSize:14, fontWeight:500, outline:"none", padding:0, minWidth:0 }} />
+                  <button onClick={() => refreshMacros(r.id, r.name)} disabled={refreshingId === r.id} title="Re-fetch macros from Open Food Facts" style={{ flexShrink:0, background:"none", border:"none", color: refreshingId === r.id ? S.dim : S.accent, fontSize:13, cursor:"pointer", padding:"0 2px" }}>
+                    {refreshingId === r.id ? "…" : "🔍"}
+                  </button>
+                  <span style={{ flexShrink:0, fontSize:9, letterSpacing:1, color: r.confidence === "HIGH" ? S.green : r.confidence === "MEDIUM" ? S.accent : S.red }}>{r.confidence}</span>
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:4, marginBottom:6 }}>
                   <ScanField label="g" value={r.estimatedGrams} onChange={v => updateResult(r.id, "estimatedGrams", v)} />
@@ -1597,14 +1649,18 @@
               </div>
             ))}
           </div>
-          <div style={{ borderTop:"1px solid "+S.border, paddingTop:10, marginTop:6 }}>
-            <button onClick={confirmFirst} disabled={results.filter(r => r.selected).length === 0} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor:"pointer" }}>
-              USE → ADJUST PORTION
-            </button>
-            <div style={{ fontSize:10, color:S.dim, textAlign:"center", marginTop:8, lineHeight:1.5 }}>
-              Multi-item meals: log the first now, then ADD FOOD again for the next.
-            </div>
-          </div>
+          {(() => {
+            const selectedCount = results.filter(r => r.selected).length;
+            const multi = selectedCount > 1;
+            return (
+              <div style={{ borderTop:"1px solid "+S.border, paddingTop:10, marginTop:6 }}>
+                <button onClick={confirmAll} disabled={selectedCount === 0} style={{ width:"100%", background: selectedCount > 0 ? S.accent : S.panel2, color: selectedCount > 0 ? "#0a0c0f" : S.dim, border:"none", borderRadius:12, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor: selectedCount > 0 ? "pointer" : "not-allowed" }}>
+                  {multi ? `LOG ${selectedCount} ITEMS AT SCANNED GRAMS` : "USE → ADJUST PORTION"}
+                </button>
+                {multi && <div style={{ fontSize:10, color:S.dim, textAlign:"center", marginTop:8, lineHeight:1.5 }}>All selected items logged directly — edit portions from the tracker.</div>}
+              </div>
+            );
+          })()}
         </div>
       );
     }
