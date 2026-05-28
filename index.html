@@ -328,7 +328,7 @@
           `name contains 'coach-' and '${parentFolderId}' in parents and trashed = false`
         );
         const r = await driveFetch(
-          `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&orderBy=name`
+          `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`
         );
         if (!r.ok) return [];
         const d = await r.json();
@@ -390,7 +390,7 @@
       }).filter(g => g.name);
 
     const migrateToV3 = (data) => {
-      if (!data || data.schema_version === 3) return data;
+      if (!data || (data.schema_version || 0) >= 3) return data;
       return {
         ...data,
         schema_version: 3,
@@ -506,8 +506,17 @@
     // File types: coach-additions.json, coach-recipes.json, coach-mealplan.json
     // Returns { data, changed } — caller saves to Drive if changed === true.
     const ingestCoachFiles = async (parentFolderId, currentData) => {
-      const files = await searchCoachFiles(parentFolderId);
-      if (files.length === 0) return { data: currentData, changed: false };
+      const rawFiles = await searchCoachFiles(parentFolderId);
+      if (rawFiles.length === 0) return { data: currentData, changed: false };
+
+      // Sort: additions first, recipes second, mealplan last
+      // (mealplan resolution depends on recipes being ingested first)
+      const ORDER = { additions: 0, recipes: 1, mealplan: 2 };
+      const files = [...rawFiles].sort((a, b) => {
+        const ta = Object.keys(ORDER).find(k => a.name.includes(k)) ?? "z";
+        const tb = Object.keys(ORDER).find(k => b.name.includes(k)) ?? "z";
+        return (ORDER[ta] ?? 99) - (ORDER[tb] ?? 99);
+      });
 
       let data = { ...currentData };
       let changed = false;
