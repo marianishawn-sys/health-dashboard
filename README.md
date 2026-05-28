@@ -1,13 +1,16 @@
-# Nutrition Concierge — v6.2.0
+# Nutrition Concierge — v6.2.3
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
 **Live:** https://marianishawn-sys.github.io/health-dashboard/
 
-## What's in v6.2.0
+## What's in v6.2.x
 
 - **Internet macro search** — Open Food Facts search bar at the top of Manual Entry. Type a food name, tap 🔍 (or press Enter), see up to 5 results with macros per 100g. Tap a result to auto-fill all fields. Results cached in localStorage. Free, no API key.
 - **Fibre field on Manual Entry** — optional fibre (g) input alongside the 4 macro fields. Auto-populated from search results.
+- **Meal scan: log all items** — 2+ selected items are batch-logged at scanned grams in one tap. Single item still goes to Adjust Portion. Each scan row has a 🔍 button to re-fetch macros from Open Food Facts after correcting the name.
+- **Fibre tracking fixed** — `scaleMacros` now carries fibre through to log entries. Divider added between macro summary and meal sections on Today tab.
+- **Fibre backfilled into food library** — all 75 pre-seeded foods now have accurate `per100g.fibre` values (USDA/CFIA data). Auto-migration runs on load and persists to Drive — no action required.
 
 ## What was in v6.1.x
 

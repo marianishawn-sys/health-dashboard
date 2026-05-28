@@ -75,19 +75,19 @@
     // Per-100g unless otherwise indicated. Sources: USDA + commodity averages.
     const SEED_FOODS = [
       // Sir's known repertoire
-      { name: "Venison stew (sir's recipe)", brand: "Home", refPortion: { grams: 350, label: "1 bowl" }, per100g: { cal: 122, protein: 15, carbs: 6, fat: 4 }, category: "meal", tags: ["venison","stew","crockpot"] },
+      { name: "Venison stew (sir's recipe)", brand: "Home", refPortion: { grams: 350, label: "1 bowl" }, per100g: { cal: 122, protein: 15, carbs: 6, fat: 4, fibre: 1.5 }, category: "meal", tags: ["venison","stew","crockpot"] },
       { name: "Strip loin steak, grilled", brand: "", refPortion: { grams: 200, label: "1 steak (200g)" }, per100g: { cal: 271, protein: 27, carbs: 0, fat: 18 }, category: "protein", tags: ["beef","steak"] },
       { name: "Free-run eggs, whole, fried", brand: "", refPortion: { grams: 100, label: "2 large eggs" }, per100g: { cal: 196, protein: 14, carbs: 1, fat: 15 }, category: "protein", tags: ["egg"] },
       { name: "Free-run eggs, whole, raw", brand: "", refPortion: { grams: 50, label: "1 large egg" }, per100g: { cal: 143, protein: 13, carbs: 0.7, fat: 9.5 }, category: "protein", tags: ["egg"] },
       { name: "Egg whites, raw", brand: "", refPortion: { grams: 33, label: "1 egg white" }, per100g: { cal: 52, protein: 11, carbs: 0.7, fat: 0.2 }, category: "protein", tags: ["egg","white"] },
       { name: "Grana Padano", brand: "", refPortion: { grams: 25, label: "25 g shaving" }, per100g: { cal: 384, protein: 33, carbs: 0, fat: 28 }, category: "dairy", tags: ["cheese","italian","hard"] },
       { name: "Parmigiano Reggiano", brand: "", refPortion: { grams: 25, label: "25 g" }, per100g: { cal: 392, protein: 35, carbs: 4, fat: 26 }, category: "dairy", tags: ["cheese","italian","hard"] },
-      { name: "Sourdough bread", brand: "", refPortion: { grams: 50, label: "1 slice" }, per100g: { cal: 260, protein: 9, carbs: 51, fat: 1.5 }, category: "grain", tags: ["bread","sourdough"] },
+      { name: "Sourdough bread", brand: "", refPortion: { grams: 50, label: "1 slice" }, per100g: { cal: 260, protein: 9, carbs: 51, fat: 1.5, fibre: 2.2 }, category: "grain", tags: ["bread","sourdough"] },
       { name: "Bacon, cooked", brand: "", refPortion: { grams: 24, label: "3 slices" }, per100g: { cal: 540, protein: 37, carbs: 1.4, fat: 42 }, category: "protein", tags: ["pork","bacon"] },
       { name: "Rainbow trout, baked", brand: "", refPortion: { grams: 170, label: "1 fillet" }, per100g: { cal: 168, protein: 24, carbs: 0, fat: 7.5 }, category: "protein", tags: ["fish","trout"] },
       { name: "Atlantic salmon, baked", brand: "", refPortion: { grams: 170, label: "1 fillet" }, per100g: { cal: 206, protein: 22, carbs: 0, fat: 13 }, category: "protein", tags: ["fish","salmon"] },
-      { name: "Orange, navel", brand: "", refPortion: { grams: 140, label: "1 medium" }, per100g: { cal: 47, protein: 0.9, carbs: 12, fat: 0.1 }, category: "fruit", tags: ["citrus"] },
-      { name: "Kiwi", brand: "", refPortion: { grams: 70, label: "1 fruit" }, per100g: { cal: 61, protein: 1.1, carbs: 15, fat: 0.5 }, category: "fruit", tags: [] },
+      { name: "Orange, navel", brand: "", refPortion: { grams: 140, label: "1 medium" }, per100g: { cal: 47, protein: 0.9, carbs: 12, fat: 0.1, fibre: 2.4 }, category: "fruit", tags: ["citrus"] },
+      { name: "Kiwi", brand: "", refPortion: { grams: 70, label: "1 fruit" }, per100g: { cal: 61, protein: 1.1, carbs: 15, fat: 0.5, fibre: 3.0 }, category: "fruit", tags: [] },
 
       // Lean proteins
       { name: "Chicken breast, grilled", brand: "", refPortion: { grams: 150, label: "1 breast (150g)" }, per100g: { cal: 165, protein: 31, carbs: 0, fat: 3.6 }, category: "protein", tags: ["chicken"] },
@@ -112,50 +112,50 @@
       { name: "Cream cheese, full fat", brand: "", refPortion: { grams: 30, label: "2 tbsp" }, per100g: { cal: 342, protein: 6, carbs: 4, fat: 34 }, category: "dairy", tags: ["cheese","cream"] },
 
       // Carbs / grains
-      { name: "Jasmine rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 130, protein: 2.7, carbs: 28, fat: 0.3 }, category: "grain", tags: ["rice"] },
-      { name: "Basmati rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 121, protein: 3, carbs: 25, fat: 0.4 }, category: "grain", tags: ["rice"] },
-      { name: "Brown rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 112, protein: 2.6, carbs: 24, fat: 0.9 }, category: "grain", tags: ["rice"] },
-      { name: "Quinoa, cooked", brand: "", refPortion: { grams: 185, label: "1 cup cooked" }, per100g: { cal: 120, protein: 4.4, carbs: 21, fat: 1.9 }, category: "grain", tags: ["quinoa"] },
-      { name: "Oats, rolled, dry", brand: "", refPortion: { grams: 40, label: "1/2 cup dry" }, per100g: { cal: 379, protein: 13, carbs: 68, fat: 7 }, category: "grain", tags: ["oats","oatmeal"] },
-      { name: "Sweet potato, baked", brand: "", refPortion: { grams: 150, label: "1 medium" }, per100g: { cal: 90, protein: 2, carbs: 21, fat: 0.1 }, category: "veg", tags: ["sweetpotato"] },
-      { name: "White potato, baked", brand: "", refPortion: { grams: 150, label: "1 medium" }, per100g: { cal: 93, protein: 2.5, carbs: 21, fat: 0.1 }, category: "veg", tags: ["potato"] },
-      { name: "Spaghetti, cooked", brand: "", refPortion: { grams: 140, label: "1 cup cooked" }, per100g: { cal: 158, protein: 5.8, carbs: 31, fat: 0.9 }, category: "grain", tags: ["pasta","spaghetti"] },
-      { name: "Penne, cooked", brand: "", refPortion: { grams: 140, label: "1 cup cooked" }, per100g: { cal: 157, protein: 5.7, carbs: 31, fat: 0.9 }, category: "grain", tags: ["pasta","penne"] },
-      { name: "Whole wheat bread", brand: "", refPortion: { grams: 32, label: "1 slice" }, per100g: { cal: 247, protein: 13, carbs: 41, fat: 4 }, category: "grain", tags: ["bread"] },
-      { name: "Bagel, plain", brand: "", refPortion: { grams: 105, label: "1 medium bagel" }, per100g: { cal: 257, protein: 10, carbs: 50, fat: 1.6 }, category: "grain", tags: ["bagel"] },
+      { name: "Jasmine rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 130, protein: 2.7, carbs: 28, fat: 0.3, fibre: 0.4 }, category: "grain", tags: ["rice"] },
+      { name: "Basmati rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 121, protein: 3, carbs: 25, fat: 0.4, fibre: 0.4 }, category: "grain", tags: ["rice"] },
+      { name: "Brown rice, cooked", brand: "", refPortion: { grams: 150, label: "1 cup cooked" }, per100g: { cal: 112, protein: 2.6, carbs: 24, fat: 0.9, fibre: 1.8 }, category: "grain", tags: ["rice"] },
+      { name: "Quinoa, cooked", brand: "", refPortion: { grams: 185, label: "1 cup cooked" }, per100g: { cal: 120, protein: 4.4, carbs: 21, fat: 1.9, fibre: 2.8 }, category: "grain", tags: ["quinoa"] },
+      { name: "Oats, rolled, dry", brand: "", refPortion: { grams: 40, label: "1/2 cup dry" }, per100g: { cal: 379, protein: 13, carbs: 68, fat: 7, fibre: 10.0 }, category: "grain", tags: ["oats","oatmeal"] },
+      { name: "Sweet potato, baked", brand: "", refPortion: { grams: 150, label: "1 medium" }, per100g: { cal: 90, protein: 2, carbs: 21, fat: 0.1, fibre: 3.3 }, category: "veg", tags: ["sweetpotato"] },
+      { name: "White potato, baked", brand: "", refPortion: { grams: 150, label: "1 medium" }, per100g: { cal: 93, protein: 2.5, carbs: 21, fat: 0.1, fibre: 2.2 }, category: "veg", tags: ["potato"] },
+      { name: "Spaghetti, cooked", brand: "", refPortion: { grams: 140, label: "1 cup cooked" }, per100g: { cal: 158, protein: 5.8, carbs: 31, fat: 0.9, fibre: 1.8 }, category: "grain", tags: ["pasta","spaghetti"] },
+      { name: "Penne, cooked", brand: "", refPortion: { grams: 140, label: "1 cup cooked" }, per100g: { cal: 157, protein: 5.7, carbs: 31, fat: 0.9, fibre: 1.8 }, category: "grain", tags: ["pasta","penne"] },
+      { name: "Whole wheat bread", brand: "", refPortion: { grams: 32, label: "1 slice" }, per100g: { cal: 247, protein: 13, carbs: 41, fat: 4, fibre: 6.9 }, category: "grain", tags: ["bread"] },
+      { name: "Bagel, plain", brand: "", refPortion: { grams: 105, label: "1 medium bagel" }, per100g: { cal: 257, protein: 10, carbs: 50, fat: 1.6, fibre: 2.1 }, category: "grain", tags: ["bagel"] },
 
       // Vegetables
-      { name: "Broccoli, steamed", brand: "", refPortion: { grams: 100, label: "1 cup" }, per100g: { cal: 35, protein: 2.4, carbs: 7, fat: 0.4 }, category: "veg", tags: ["broccoli"] },
-      { name: "Spinach, raw", brand: "", refPortion: { grams: 30, label: "1 cup" }, per100g: { cal: 23, protein: 2.9, carbs: 3.6, fat: 0.4 }, category: "veg", tags: ["spinach","leafy"] },
-      { name: "Kale, raw", brand: "", refPortion: { grams: 67, label: "1 cup" }, per100g: { cal: 49, protein: 4.3, carbs: 9, fat: 0.9 }, category: "veg", tags: ["kale","leafy"] },
-      { name: "Bell pepper, red", brand: "", refPortion: { grams: 150, label: "1 pepper" }, per100g: { cal: 31, protein: 1, carbs: 6, fat: 0.3 }, category: "veg", tags: ["pepper"] },
-      { name: "Carrots, raw", brand: "", refPortion: { grams: 61, label: "1 medium" }, per100g: { cal: 41, protein: 0.9, carbs: 10, fat: 0.2 }, category: "veg", tags: ["carrot"] },
-      { name: "Cucumber", brand: "", refPortion: { grams: 100, label: "1/2 cucumber" }, per100g: { cal: 16, protein: 0.7, carbs: 3.6, fat: 0.1 }, category: "veg", tags: ["cucumber"] },
-      { name: "Tomato, raw", brand: "", refPortion: { grams: 123, label: "1 medium" }, per100g: { cal: 18, protein: 0.9, carbs: 3.9, fat: 0.2 }, category: "veg", tags: ["tomato"] },
-      { name: "Onion, white, raw", brand: "", refPortion: { grams: 110, label: "1 medium" }, per100g: { cal: 40, protein: 1.1, carbs: 9, fat: 0.1 }, category: "veg", tags: ["onion"] },
-      { name: "Asparagus, steamed", brand: "", refPortion: { grams: 90, label: "6 spears" }, per100g: { cal: 22, protein: 2.4, carbs: 4, fat: 0.2 }, category: "veg", tags: ["asparagus"] },
-      { name: "Brussels sprouts, roasted", brand: "", refPortion: { grams: 100, label: "1 cup" }, per100g: { cal: 56, protein: 4, carbs: 11, fat: 0.8 }, category: "veg", tags: ["brussels"] },
+      { name: "Broccoli, steamed", brand: "", refPortion: { grams: 100, label: "1 cup" }, per100g: { cal: 35, protein: 2.4, carbs: 7, fat: 0.4, fibre: 2.6 }, category: "veg", tags: ["broccoli"] },
+      { name: "Spinach, raw", brand: "", refPortion: { grams: 30, label: "1 cup" }, per100g: { cal: 23, protein: 2.9, carbs: 3.6, fat: 0.4, fibre: 2.2 }, category: "veg", tags: ["spinach","leafy"] },
+      { name: "Kale, raw", brand: "", refPortion: { grams: 67, label: "1 cup" }, per100g: { cal: 49, protein: 4.3, carbs: 9, fat: 0.9, fibre: 3.6 }, category: "veg", tags: ["kale","leafy"] },
+      { name: "Bell pepper, red", brand: "", refPortion: { grams: 150, label: "1 pepper" }, per100g: { cal: 31, protein: 1, carbs: 6, fat: 0.3, fibre: 2.1 }, category: "veg", tags: ["pepper"] },
+      { name: "Carrots, raw", brand: "", refPortion: { grams: 61, label: "1 medium" }, per100g: { cal: 41, protein: 0.9, carbs: 10, fat: 0.2, fibre: 2.8 }, category: "veg", tags: ["carrot"] },
+      { name: "Cucumber", brand: "", refPortion: { grams: 100, label: "1/2 cucumber" }, per100g: { cal: 16, protein: 0.7, carbs: 3.6, fat: 0.1, fibre: 0.5 }, category: "veg", tags: ["cucumber"] },
+      { name: "Tomato, raw", brand: "", refPortion: { grams: 123, label: "1 medium" }, per100g: { cal: 18, protein: 0.9, carbs: 3.9, fat: 0.2, fibre: 1.2 }, category: "veg", tags: ["tomato"] },
+      { name: "Onion, white, raw", brand: "", refPortion: { grams: 110, label: "1 medium" }, per100g: { cal: 40, protein: 1.1, carbs: 9, fat: 0.1, fibre: 1.7 }, category: "veg", tags: ["onion"] },
+      { name: "Asparagus, steamed", brand: "", refPortion: { grams: 90, label: "6 spears" }, per100g: { cal: 22, protein: 2.4, carbs: 4, fat: 0.2, fibre: 2.1 }, category: "veg", tags: ["asparagus"] },
+      { name: "Brussels sprouts, roasted", brand: "", refPortion: { grams: 100, label: "1 cup" }, per100g: { cal: 56, protein: 4, carbs: 11, fat: 0.8, fibre: 3.8 }, category: "veg", tags: ["brussels"] },
 
       // Fruits
-      { name: "Banana", brand: "", refPortion: { grams: 118, label: "1 medium" }, per100g: { cal: 89, protein: 1.1, carbs: 23, fat: 0.3 }, category: "fruit", tags: [] },
-      { name: "Apple, with skin", brand: "", refPortion: { grams: 182, label: "1 medium" }, per100g: { cal: 52, protein: 0.3, carbs: 14, fat: 0.2 }, category: "fruit", tags: [] },
-      { name: "Blueberries", brand: "", refPortion: { grams: 148, label: "1 cup" }, per100g: { cal: 57, protein: 0.7, carbs: 14, fat: 0.3 }, category: "fruit", tags: ["berry"] },
-      { name: "Strawberries", brand: "", refPortion: { grams: 152, label: "1 cup" }, per100g: { cal: 32, protein: 0.7, carbs: 7.7, fat: 0.3 }, category: "fruit", tags: ["berry"] },
-      { name: "Raspberries", brand: "", refPortion: { grams: 123, label: "1 cup" }, per100g: { cal: 52, protein: 1.2, carbs: 12, fat: 0.7 }, category: "fruit", tags: ["berry"] },
-      { name: "Avocado", brand: "", refPortion: { grams: 100, label: "1/2 avocado" }, per100g: { cal: 160, protein: 2, carbs: 9, fat: 15 }, category: "fat", tags: ["avocado"] },
+      { name: "Banana", brand: "", refPortion: { grams: 118, label: "1 medium" }, per100g: { cal: 89, protein: 1.1, carbs: 23, fat: 0.3, fibre: 2.6 }, category: "fruit", tags: [] },
+      { name: "Apple, with skin", brand: "", refPortion: { grams: 182, label: "1 medium" }, per100g: { cal: 52, protein: 0.3, carbs: 14, fat: 0.2, fibre: 2.4 }, category: "fruit", tags: [] },
+      { name: "Blueberries", brand: "", refPortion: { grams: 148, label: "1 cup" }, per100g: { cal: 57, protein: 0.7, carbs: 14, fat: 0.3, fibre: 2.4 }, category: "fruit", tags: ["berry"] },
+      { name: "Strawberries", brand: "", refPortion: { grams: 152, label: "1 cup" }, per100g: { cal: 32, protein: 0.7, carbs: 7.7, fat: 0.3, fibre: 2.0 }, category: "fruit", tags: ["berry"] },
+      { name: "Raspberries", brand: "", refPortion: { grams: 123, label: "1 cup" }, per100g: { cal: 52, protein: 1.2, carbs: 12, fat: 0.7, fibre: 6.5 }, category: "fruit", tags: ["berry"] },
+      { name: "Avocado", brand: "", refPortion: { grams: 100, label: "1/2 avocado" }, per100g: { cal: 160, protein: 2, carbs: 9, fat: 15, fibre: 6.7 }, category: "fat", tags: ["avocado"] },
 
       // Fats / nuts
       { name: "Olive oil, extra virgin", brand: "", refPortion: { grams: 14, label: "1 tbsp" }, per100g: { cal: 884, protein: 0, carbs: 0, fat: 100 }, category: "fat", tags: ["oil","olive"] },
-      { name: "Almonds, raw", brand: "", refPortion: { grams: 28, label: "1 oz (23 nuts)" }, per100g: { cal: 579, protein: 21, carbs: 22, fat: 50 }, category: "fat", tags: ["nuts","almond"] },
-      { name: "Walnuts, raw", brand: "", refPortion: { grams: 28, label: "1 oz" }, per100g: { cal: 654, protein: 15, carbs: 14, fat: 65 }, category: "fat", tags: ["nuts","walnut"] },
-      { name: "Peanut butter, natural", brand: "", refPortion: { grams: 32, label: "2 tbsp" }, per100g: { cal: 588, protein: 25, carbs: 20, fat: 50 }, category: "fat", tags: ["peanut","butter"] },
-      { name: "Almond butter, natural", brand: "", refPortion: { grams: 32, label: "2 tbsp" }, per100g: { cal: 614, protein: 21, carbs: 19, fat: 56 }, category: "fat", tags: ["almond","butter"] },
-      { name: "Cashews, raw", brand: "", refPortion: { grams: 28, label: "1 oz" }, per100g: { cal: 553, protein: 18, carbs: 30, fat: 44 }, category: "fat", tags: ["nuts","cashew"] },
+      { name: "Almonds, raw", brand: "", refPortion: { grams: 28, label: "1 oz (23 nuts)" }, per100g: { cal: 579, protein: 21, carbs: 22, fat: 50, fibre: 12.5 }, category: "fat", tags: ["nuts","almond"] },
+      { name: "Walnuts, raw", brand: "", refPortion: { grams: 28, label: "1 oz" }, per100g: { cal: 654, protein: 15, carbs: 14, fat: 65, fibre: 6.7 }, category: "fat", tags: ["nuts","walnut"] },
+      { name: "Peanut butter, natural", brand: "", refPortion: { grams: 32, label: "2 tbsp" }, per100g: { cal: 588, protein: 25, carbs: 20, fat: 50, fibre: 6.0 }, category: "fat", tags: ["peanut","butter"] },
+      { name: "Almond butter, natural", brand: "", refPortion: { grams: 32, label: "2 tbsp" }, per100g: { cal: 614, protein: 21, carbs: 19, fat: 56, fibre: 10.3 }, category: "fat", tags: ["almond","butter"] },
+      { name: "Cashews, raw", brand: "", refPortion: { grams: 28, label: "1 oz" }, per100g: { cal: 553, protein: 18, carbs: 30, fat: 44, fibre: 3.3 }, category: "fat", tags: ["nuts","cashew"] },
 
       // Legumes
-      { name: "Black beans, cooked", brand: "", refPortion: { grams: 172, label: "1 cup" }, per100g: { cal: 132, protein: 8.9, carbs: 24, fat: 0.5 }, category: "legume", tags: ["beans"] },
-      { name: "Chickpeas, cooked", brand: "", refPortion: { grams: 164, label: "1 cup" }, per100g: { cal: 164, protein: 9, carbs: 27, fat: 2.6 }, category: "legume", tags: ["chickpea","garbanzo"] },
-      { name: "Lentils, cooked", brand: "", refPortion: { grams: 198, label: "1 cup" }, per100g: { cal: 116, protein: 9, carbs: 20, fat: 0.4 }, category: "legume", tags: ["lentil"] },
+      { name: "Black beans, cooked", brand: "", refPortion: { grams: 172, label: "1 cup" }, per100g: { cal: 132, protein: 8.9, carbs: 24, fat: 0.5, fibre: 8.7 }, category: "legume", tags: ["beans"] },
+      { name: "Chickpeas, cooked", brand: "", refPortion: { grams: 164, label: "1 cup" }, per100g: { cal: 164, protein: 9, carbs: 27, fat: 2.6, fibre: 7.6 }, category: "legume", tags: ["chickpea","garbanzo"] },
+      { name: "Lentils, cooked", brand: "", refPortion: { grams: 198, label: "1 cup" }, per100g: { cal: 116, protein: 9, carbs: 20, fat: 0.4, fibre: 7.9 }, category: "legume", tags: ["lentil"] },
 
       // Beverages
       { name: "Coffee, black", brand: "", refPortion: { grams: 240, label: "1 mug" }, per100g: { cal: 1, protein: 0.1, carbs: 0, fat: 0 }, category: "beverage", tags: ["coffee"] },
@@ -290,6 +290,27 @@
       };
     };
 
+    // Backfill fibre into existing seeded foods that predate the fibre update
+    const backfillSeedFibre = (data) => {
+      if (!data || !data.foods) return data;
+      const fibreLookup = {};
+      SEED_FOODS.forEach((f, i) => {
+        if (f.per100g.fibre) fibreLookup["f_seed_" + i.toString(36)] = f.per100g.fibre;
+      });
+      const needsUpdate = data.foods.some(f => fibreLookup[f.id] !== undefined && !f.per100g.fibre);
+      if (!needsUpdate) return data;
+      return {
+        ...data,
+        foods: data.foods.map(f => {
+          const fibre = fibreLookup[f.id];
+          if (fibre !== undefined && !f.per100g.fibre) {
+            return { ...f, per100g: { ...f.per100g, fibre } };
+          }
+          return f;
+        }),
+      };
+    };
+
     // ───────────────────── MACRO CALC ─────────────────────
     const scaleMacros = (per100g, grams) => ({
       cal: round(per100g.cal * grams / 100),
@@ -397,10 +418,11 @@
           fileId = await findOrCreateFile(DATA_FILENAME, folderId);
           const raw = await readDriveFile(fileId);
           const v2 = migrateToV2(raw);
-          const migrated = migrateToV3(v2);
+          const v3 = migrateToV3(v2);
+          const migrated = backfillSeedFibre(v3);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
           setData(migrated);
-          if (!raw || raw.version !== 2 || raw.schema_version !== 3) {
+          if (!raw || raw.version !== 2 || raw.schema_version !== 3 || migrated !== v3) {
             await writeDriveFile(fileId, migrated);
           }
         } catch (e) {
