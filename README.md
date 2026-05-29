@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.4.0
+# Nutrition Concierge — v7.4.1
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,14 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.4.1 — Pantry Quantity Editing Fixes
+- **iOS decimal input** — Qty/par fields changed from `type="number"` to `type="text" inputMode="decimal"`; avoids WebKit controlled-input bug.
+- **Larger stepper buttons** — −/+ buttons enlarged 28→34 px for easier mobile tap.
+- **Tracking-type toggle** — Every pantry item now shows QTY / STATUS chips in its sub-row. Tap to switch any item between count mode (stepper) and status mode (HAVE/LOW/OUT) at any time.
+- **Inline qty edit** — Tapping the quantity number opens a direct-edit field; shows a visible border so it reads as a button. "Done" key (iOS) closes it.
+- **Null qty** displayed as 0 instead of blank for count items.
+- **Add-form unit reset** — Unit field resets to "portions" after submitting the manual add form.
 
 ### M5 · v7.4.0 — Coach Ingest
 - **Drive scope** upgraded `drive.file` → `drive` (one-time re-consent on next sign-in).
