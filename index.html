@@ -3020,6 +3020,14 @@ ${parseText}`;
         setData({ ...data, pantry: updated });
       };
       const removeItem = (id) => setData({ ...data, pantry: pantry.filter(p => p.id!==id) });
+      const switchTracking = (id, toType) => {
+        const updated = pantry.map(p => {
+          if (p.id!==id) return p;
+          if (toType==="count") return { ...p, trackingType:"count", quantity:0, state:null };
+          return { ...p, trackingType:"state", state:"have", quantity:null };
+        });
+        setData({ ...data, pantry: updated });
+      };
 
       // Scan result → link to registry
       const handleScanResult = (rawItems) => {
@@ -3061,7 +3069,7 @@ ${parseText}`;
           parLevel:!isNaN(par)?par:null, expiry:null,
           expiryNA:addCat==="freezer"||addCat==="pantry" };
         setData({ ...data, ingredients:[...ingredients,newIng], pantry:[...pantry,newItem] });
-        setAddName(""); setAddQty(""); setAddPar(""); setShowAdd(false);
+        setAddName(""); setAddQty(""); setAddPar(""); setAddUnit("portions"); setShowAdd(false);
       };
 
       const displayPantry = useMemo(() => {
@@ -3113,7 +3121,7 @@ ${parseText}`;
               {addTracking==="count" && (
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:7 }}>
                   {[["Qty",addQty,setAddQty],["Unit",addUnit,setAddUnit],["Par",addPar,setAddPar]].map(([ph,v,sv])=>(
-                    <input key={ph} type={ph==="Unit"?"text":"number"} placeholder={ph} value={v} onChange={e=>sv(e.target.value)}
+                    <input key={ph} type="text" inputMode={ph==="Unit"?"text":"decimal"} placeholder={ph} value={v} onChange={e=>sv(e.target.value)}
                       style={{ background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"8px 6px", color:S.text, fontSize:12, outline:"none", textAlign:"center" }} />
                   ))}
                 </div>
@@ -3146,36 +3154,45 @@ ${parseText}`;
                       <div style={{ flex:1, fontSize:13, color:S.text, fontWeight:500, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ing.name}</div>
                       {item.trackingType==="count" ? (
                         <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-                          <button onClick={()=>adjustQty(item.id,-step)} style={{ width:28,height:28,borderRadius:7,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:15,cursor:"pointer",lineHeight:1 }}>−</button>
+                          <button onClick={()=>adjustQty(item.id,-step)} style={{ width:34,height:34,borderRadius:8,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:18,cursor:"pointer",lineHeight:1,flexShrink:0 }}>−</button>
                           {editQtyId===item.id ? (
-                            <input type="number" autoFocus defaultValue={item.quantity}
+                            <input type="text" inputMode="decimal" autoFocus defaultValue={item.quantity}
                               onBlur={e=>{setQtyDirect(item.id,e.target.value);setEditQtyId(null);}}
-                              onKeyDown={e=>{if(e.key==="Enter"){setQtyDirect(item.id,e.target.value);setEditQtyId(null);}}}
-                              style={{ width:46,textAlign:"center",background:S.panel2,border:`1px solid ${S.accent}`,borderRadius:7,padding:"4px 2px",color:S.text,fontSize:13,fontWeight:700,outline:"none" }} />
+                              onKeyDown={e=>{if(e.key==="Enter"||e.key==="Done"){setQtyDirect(item.id,e.target.value);setEditQtyId(null);}}}
+                              style={{ width:50,textAlign:"center",background:S.panel2,border:`1px solid ${S.accent}`,borderRadius:7,padding:"5px 2px",color:S.text,fontSize:13,fontWeight:700,outline:"none" }} />
                           ) : (
-                            <button onClick={()=>setEditQtyId(item.id)} style={{ minWidth:36,textAlign:"center",background:"none",border:"none",color:S.text,fontSize:13,fontWeight:700,cursor:"pointer",padding:"4px 2px" }}>
-                              {item.quantity}
+                            <button onClick={()=>setEditQtyId(item.id)} style={{ minWidth:40,textAlign:"center",background:"none",border:"1px solid "+S.border,borderRadius:7,color:S.text,fontSize:13,fontWeight:700,cursor:"pointer",padding:"5px 4px" }}>
+                              {item.quantity ?? 0}
                             </button>
                           )}
-                          <span style={{ fontSize:9,color:S.dim,maxWidth:40,overflow:"hidden",textOverflow:"ellipsis" }}>{item.unit}</span>
-                          <button onClick={()=>adjustQty(item.id,step)} style={{ width:28,height:28,borderRadius:7,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:15,cursor:"pointer",lineHeight:1 }}>+</button>
+                          <span style={{ fontSize:9,color:S.dim,maxWidth:36,overflow:"hidden",textOverflow:"ellipsis",flexShrink:0 }}>{item.unit}</span>
+                          <button onClick={()=>adjustQty(item.id,step)} style={{ width:34,height:34,borderRadius:8,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:18,cursor:"pointer",lineHeight:1,flexShrink:0 }}>+</button>
                         </div>
                       ) : (
                         <div style={{ display:"flex", gap:4 }}>
                           {["have","low","out"].map(s => {
                             const sc = s==="out"?S.red:s==="low"?S.accent:S.green;
-                            return <button key={s} onClick={()=>setStateVal(item.id,s)} style={{ padding:"4px 7px",borderRadius:7,border:`1px solid ${item.state===s?sc:S.border}`,background:item.state===s?`${sc}22`:S.panel2,color:item.state===s?sc:S.dim,fontSize:9,fontWeight:700,letterSpacing:0.5,cursor:"pointer" }}>{s.toUpperCase()}</button>;
+                            return <button key={s} onClick={()=>setStateVal(item.id,s)} style={{ padding:"5px 8px",borderRadius:7,border:`1px solid ${item.state===s?sc:S.border}`,background:item.state===s?`${sc}22`:S.panel2,color:item.state===s?sc:S.dim,fontSize:9,fontWeight:700,letterSpacing:0.5,cursor:"pointer" }}>{s.toUpperCase()}</button>;
                           })}
                         </div>
                       )}
                       <button onClick={()=>removeItem(item.id)} style={{ background:"none",border:"none",color:S.dimmer,fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0 }}>×</button>
                     </div>
                     {/* Sub-row */}
-                    <div style={{ display:"flex",alignItems:"center",gap:10,marginTop:5,paddingLeft:16 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8,marginTop:6,paddingLeft:16,flexWrap:"wrap" }}>
+                      {/* Tracking type toggle */}
+                      <div style={{ display:"flex",gap:3 }}>
+                        {[["count","#"],["state","±"]].map(([t,icon])=>(
+                          <button key={t} onClick={()=>switchTracking(item.id,t)}
+                            style={{ padding:"2px 6px",borderRadius:5,border:`1px solid ${item.trackingType===t?S.accent:S.border}`,background:item.trackingType===t?`${S.accent}22`:S.panel2,color:item.trackingType===t?S.accent:S.dimmer,fontSize:8,fontWeight:700,cursor:"pointer",letterSpacing:0.3 }}>
+                            {t==="count"?"QTY":"STATUS"}
+                          </button>
+                        ))}
+                      </div>
                       {item.trackingType==="count"&&item.parLevel!=null&&(
                         <span style={{ fontSize:9,color:S.dimmer }}>par {item.parLevel}</span>
                       )}
-                      <button onClick={()=>setExpandedId(isExp?null:item.id)} style={{ fontSize:9,color:item.expiry&&!item.expiryNA?dot:S.dimmer,background:"none",border:"none",cursor:"pointer",padding:0,letterSpacing:0.5 }}>
+                      <button onClick={()=>setExpandedId(isExp?null:item.id)} style={{ fontSize:9,color:item.expiry&&!item.expiryNA?dot:S.dimmer,background:"none",border:"none",cursor:"pointer",padding:0,letterSpacing:0.5,marginLeft:"auto" }}>
                         {item.expiryNA?"EXP N/A":item.expiry?`EXP ${item.expiry}`:"SET EXPIRY"}
                       </button>
                     </div>
