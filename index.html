@@ -1129,7 +1129,7 @@
           </div>
 
           {/* Divider */}
-          <div style={{ height:1, background:"rgba(255,255,255,0.12)", margin:"14px 0" }} />
+          <div style={{ height:1, background:"rgba(255,255,255,0.25)", margin:"14px 0" }} />
 
           {/* Meals */}
           {meals.map(m => {
@@ -3124,11 +3124,14 @@ ${parseText}`;
             </div>
           )}
 
+          {/* Divider below controls */}
+          <div style={{ height:1, background:"rgba(255,255,255,0.25)", margin:"4px 0 16px" }} />
+
           {/* Item list */}
           {Object.entries(grouped)
             .filter(([, items]) => items.length > 0)
             .map(([cat, items], idx) => (
-            <div key={cat} style={{ marginBottom:16, ...(idx > 0 ? { borderTop:"1px solid rgba(255,255,255,0.12)", paddingTop:14, marginTop:4 } : {}) }}>
+            <div key={cat} style={{ marginBottom:16, ...(idx > 0 ? { borderTop:"1px solid rgba(255,255,255,0.25)", paddingTop:14, marginTop:4 } : {}) }}>
               <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 0 8px", fontWeight:700 }}>{CAT_LABEL[cat]||cat.toUpperCase()} · {items.length}</div>
               {items.map(item => {
                 const ing    = getIng(item.itemId);
