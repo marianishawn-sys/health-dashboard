@@ -2010,6 +2010,68 @@
       );
     }
 
+    // ───────────────────── MFP RECIPE CSV HELPERS ─────────────────────
+    // Parse one CSV line, respecting quoted fields (e.g. "chopped, Onions, raw")
+    const parseCSVLine = (line) => {
+      const out = []; let cur = "", inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { inQ = !inQ; }
+        else if (c === ',' && !inQ) { out.push(cur.trim()); cur = ""; }
+        else cur += c;
+      }
+      out.push(cur.trim());
+      return out;
+    };
+
+    // Normalise a MFP quantity string ("2 tbsp(s)", "454 gram", "1 large", "0.50 cup") → {qty, unit}
+    const parseQuantityStr = (str) => {
+      if (!str) return { qty: 1, unit: "portions" };
+      str = str.trim();
+      const m = str.match(/^([\d.]+)\s*(.*)/);
+      if (!m) return { qty: 1, unit: "portions" };
+      const qty = parseFloat(m[1]) || 1;
+      let u = (m[2] || "").toLowerCase()
+        .replace(/\(s\)$/,"").replace(/s\b/,"").replace(/\.$/, "").trim();
+      const MAP = {
+        gram:"g",grams:"g","gram":"g",
+        tablespoon:"tbsp",tbsp:"tbsp",
+        teaspoon:"tsp",tsp:"tsp",
+        cup:"cup",
+        ml:"ml",mL:"ml",
+        oz:"oz",ounce:"oz",
+        lb:"lb",pound:"lb",
+        large:"portions",medium:"portions",small:"portions",
+        egg:"portions",clove:"portions",avocado:"portions",
+        pepper:"portions",onion:"portions","":"portions",
+      };
+      return { qty, unit: MAP[u] || u || "portions" };
+    };
+
+    // Fetch one product from Open Food Facts; returns {brand, per100g} or null
+    const fetchOFFSingle = async (name) => {
+      try {
+        const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=1&fields=product_name,brands,nutriments`;
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        const d = await r.json();
+        const p = d.products?.[0];
+        if (!p) return null;
+        const n = p.nutriments || {};
+        const cal = Math.round(n["energy-kcal_100g"] || (n["energy_100g"] || 0) / 4.184);
+        return {
+          brand: p.brands || "",
+          per100g: {
+            cal,
+            protein: round(n.proteins_100g || 0, 1),
+            carbs:   round(n.carbohydrates_100g || 0, 1),
+            fat:     round(n.fat_100g || 0, 1),
+            fibre:   round(n.fiber_100g || 0, 1),
+          },
+        };
+      } catch { return null; }
+    };
+
     // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
     function RecipeEditor({ recipe, ingredients, onSave, onCancel }) {
       const [name, setName]             = useState(recipe.name || "");
@@ -2132,9 +2194,142 @@
       const [parsing, setParsing]       = useState(false);
       const [search, setSearch]         = useState("");
       const [expandedId, setExpandedId] = useState(null);
+      const [importMsg, setImportMsg]   = useState(""); // "" | progress string | result string
+      const csvFileRef = useRef(null);
 
       const recipes     = data.recipes     || [];
       const ingredients = data.ingredients || [];
+
+      // ── MFP CSV import ──
+      const importCSV = async (file) => {
+        if (!file) return;
+        setImportMsg("Reading file…");
+        const text = await file.text();
+        const lines = text.trim().split(/\r?\n/);
+        if (lines.length < 2) { setImportMsg("No data rows found."); return; }
+
+        // Parse all rows (skip header)
+        const rows = lines.slice(1).map(l => {
+          const f = parseCSVLine(l);
+          return {
+            recipeName:    f[0] || "",
+            servings:      parseFloat(f[1]) || 1,
+            ingredientName: f[2] || "",
+            quantityStr:   f[3] || "",
+            cal:  parseFloat(f[4])  || 0,
+            fat:  parseFloat(f[5])  || 0,
+            carbs:parseFloat(f[9])  || 0,
+            fibre:parseFloat(f[10]) || 0,
+            protein:parseFloat(f[12])|| 0,
+          };
+        }).filter(r => r.recipeName && r.ingredientName);
+
+        // Group by recipe
+        const recipeMap = {};
+        rows.forEach(r => {
+          if (!recipeMap[r.recipeName]) {
+            recipeMap[r.recipeName] = {
+              name: r.recipeName,
+              rawServings: r.servings,
+              // MFP stores exact per-serving totals on every row — grab from first row
+              perServing: { cal:r.cal, fat:r.fat, carbs:r.carbs, fibre:r.fibre, protein:r.protein },
+              ingredients: [],
+            };
+          }
+          recipeMap[r.recipeName].ingredients.push({ name:r.ingredientName, quantityStr:r.quantityStr });
+        });
+
+        // Detect "1g=1serv" recipes — normalise to per-100g servings for usability
+        Object.values(recipeMap).forEach(rec => {
+          const isPerGram = rec.rawServings > 200 ||
+            /1g\s*=\s*1\s*serv|per gram/i.test(rec.name);
+          if (isPerGram) {
+            rec.servings = Math.max(1, Math.round(rec.rawServings / 100));
+            rec.perServing = {
+              cal:    round(rec.perServing.cal    * 100, 0),
+              fat:    round(rec.perServing.fat    * 100, 1),
+              carbs:  round(rec.perServing.carbs  * 100, 1),
+              fibre:  round(rec.perServing.fibre  * 100, 1),
+              protein:round(rec.perServing.protein* 100, 1),
+            };
+            rec.servingNote = "per 100g";
+          } else {
+            rec.servings = rec.rawServings;
+          }
+        });
+
+        // Unique ingredient names
+        const uniqueIngNames = [...new Set(rows.map(r => r.ingredientName))];
+        const SKIP_OFF = new Set(["water","salt","sea salt","kosher salt","sugar","pepper","black pepper"]);
+
+        // Build mutable copies of food/ingredient registries
+        let newFoods = [...(data.foods || [])];
+        let newIngs  = [...(data.ingredients || [])];
+        const ingNameToId = {};
+
+        // Pre-index existing entries (case-insensitive)
+        const foodIdx = {};
+        newFoods.forEach(f => { foodIdx[f.name.toLowerCase()] = f; });
+        const ingIdx = {};
+        newIngs.forEach(i => { ingIdx[i.name.toLowerCase()] = i; });
+
+        // Look up each ingredient in OFf sequentially
+        for (let i = 0; i < uniqueIngNames.length; i++) {
+          const ingName = uniqueIngNames[i];
+          setImportMsg(`Looking up ingredients (${i+1}/${uniqueIngNames.length})…`);
+          const key = ingName.toLowerCase();
+
+          // Ensure ingredient registry entry
+          if (!ingIdx[key]) {
+            const newId = uid("ing");
+            const newIng = { id:newId, name:ingName, defaultUnit:"g", category:"pantry" };
+            newIngs.push(newIng);
+            ingIdx[key] = newIng;
+          }
+          ingNameToId[ingName] = ingIdx[key].id;
+
+          // Try to add food library entry (skip trivials)
+          if (!foodIdx[key] && !SKIP_OFF.has(key)) {
+            const off = await fetchOFFSingle(ingName);
+            if (off && off.per100g.cal > 0) {
+              const newFood = { id:uid("f"), name:ingName, brand:off.brand,
+                per100g:off.per100g, useCount:0, source:"csv_import" };
+              newFoods.push(newFood);
+              foodIdx[key] = newFood;
+            }
+          }
+        }
+
+        // Build recipe entries (skip dupes by name)
+        let newRecipes = [...(data.recipes || [])];
+        const recipeIdx = {};
+        newRecipes.forEach(r => { recipeIdx[r.name.toLowerCase()] = true; });
+        let imported = 0;
+
+        Object.values(recipeMap).forEach(rec => {
+          if (recipeIdx[rec.name.toLowerCase()]) return; // skip dupe
+          const recipeRows = rec.ingredients.map(ri => {
+            const { qty, unit } = parseQuantityStr(ri.quantityStr);
+            return { itemId: ingNameToId[ri.name] || null, quantity:qty, unit };
+          }).filter(r => r.itemId);
+
+          newRecipes.push({
+            id: uid("rec"), name: rec.name,
+            servings: rec.servings,
+            servingNote: rec.servingNote || "",
+            perServing: rec.perServing,
+            ingredients: recipeRows,
+            instructions: "",
+            createdAt: new Date().toISOString(),
+            source: "mfp_import",
+          });
+          imported++;
+        });
+
+        setData({ ...data, foods:newFoods, ingredients:newIngs, recipes:newRecipes });
+        setImportMsg(`✓ Imported ${imported} recipe${imported!==1?"s":""} · ${uniqueIngNames.length} ingredients processed`);
+        if (csvFileRef.current) csvFileRef.current.value = "";
+      };
 
       const filtered = useMemo(() => {
         if (!search.trim()) return recipes;
@@ -2250,6 +2445,32 @@ ${parseText}`;
             </button>
           </div>
 
+          {/* ── MFP CSV Import ── */}
+          <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:10 }}>
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>IMPORT MFP RECIPE CSV</div>
+            <div style={{ fontSize:12, color:S.dim, marginBottom:8, lineHeight:1.4 }}>
+              Upload your MFP recipe export CSV. Macros are taken directly from MFP;
+              ingredient library entries are fetched from Open Food Facts.
+            </div>
+            <input ref={csvFileRef} type="file" accept=".csv" style={{ display:"none" }}
+              onChange={e => importCSV(e.target.files?.[0])} />
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <button onClick={() => csvFileRef.current?.click()}
+                disabled={!!importMsg && !importMsg.startsWith("✓")}
+                style={{ background: (importMsg && !importMsg.startsWith("✓")) ? S.border : S.accent,
+                  color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 18px",
+                  fontSize:12, fontWeight:700, letterSpacing:1,
+                  cursor:(importMsg && !importMsg.startsWith("✓")) ? "default" : "pointer" }}>
+                📥 CHOOSE CSV
+              </button>
+              {importMsg && (
+                <span style={{ fontSize:12, color: importMsg.startsWith("✓") ? S.green : S.dim }}>
+                  {importMsg}
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* ── AI Parse ── */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
             <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>AI RECIPE PARSER</div>
@@ -2286,8 +2507,17 @@ ${parseText}`;
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:14, fontWeight:600, color:S.text }}>{recipe.name}</div>
                     <div style={{ fontSize:11, color:S.dim, marginTop:2 }}>
-                      {recipe.servings} serving{recipe.servings !== 1 ? "s" : ""} · {recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? "s" : ""}
+                      {recipe.servings} serving{recipe.servings !== 1 ? "s" : ""}
+                      {recipe.servingNote ? <span style={{ color:S.dimmer }}> ({recipe.servingNote})</span> : ""}
+                      {" · "}{recipe.ingredients.length} ingredient{recipe.ingredients.length !== 1 ? "s" : ""}
                     </div>
+                    {recipe.perServing && (
+                      <div style={{ fontSize:10, color:S.dimmer, marginTop:2 }}>
+                        {recipe.perServing.cal} cal · {recipe.perServing.protein}g P · {recipe.perServing.carbs}g C · {recipe.perServing.fat}g F
+                        {recipe.perServing.fibre > 0 ? ` · ${recipe.perServing.fibre}g fibre` : ""}
+                        {" "}/ serving
+                      </div>
+                    )}
                   </div>
                   <span style={{ color:S.dim, fontSize:16 }}>{isExpanded ? "▲" : "▼"}</span>
                 </div>
