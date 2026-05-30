@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.4.1
+# Nutrition Concierge — v7.4.6
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,27 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.4.6 — Sticky Headers
+- **App header** (`CONCIERGE / date / HIGH·LOW`) is now `position:sticky` — stays pinned across all tabs when scrolling.
+- **Today tab** macro/fibre card + date nav pinned below the app header; meal log scrolls underneath.
+- **Pantry tab** SCAN/BULK/ADD buttons, FLAGGED FIRST toggle, and INVENTORY label pinned; inventory items scroll underneath.
+
+### v7.4.5 — Sticky Macro Card (Today Tab)
+- Date nav + macro/fibre summary + MEALS section label are now a sticky block pinned to the top of the viewport on the Today tab. Meal entries scroll beneath them.
+
+### v7.4.4 — Section Dividers + Fibre Auto-Fetch
+- Section dividers replaced with labeled flex rows (`── MEALS ──` / `── INVENTORY ──`) — visible regardless of device rendering quirks.
+- On session start, a background fetch populates fibre data from Open Food Facts for the top 10 most-used foods that are missing it. Combined with the retroactive fibre lookup in `sumLogged`, historical log entries now show fibre without re-logging.
+
+### v7.4.3 — Date Fix + Fibre Retroactive Lookup
+- **Date bug**: `isoToday()` was using `toISOString()` (UTC), causing the app to show tomorrow's empty log after ~7–8 PM. Fixed to use local year/month/day.
+- **Fibre retroactive lookup**: `sumLogged` now accepts the food library as a third argument. For log entries where `fibre` is 0 but a `foodId` exists, fibre is computed on the fly from the current food library — fixing all historical entries without touching stored data.
+- **Fibre in MealScan**: AI prompt updated to include `fibre` in the JSON spec; OFF re-fetch (`🔍`) now also returns fibre.
+
+### v7.4.2 — Pantry Item Edit Modal + Fibre in Scan Review
+- Tap any pantry item name to open a bottom-sheet edit modal (name, location, tracking mode, unit, par level). SAVE CHANGES updates both the ingredient registry and the pantry entry.
+- MealScan review grid now shows a FIB/100g field (grid restructured to 3 columns × 2 rows).
 
 ### v7.4.1 — Pantry Quantity Editing Fixes
 - **iOS decimal input** — Qty/par fields changed from `type="number"` to `type="text" inputMode="decimal"`; avoids WebKit controlled-input bug.
