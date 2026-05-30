@@ -1112,7 +1112,9 @@
       const hasAnyEntry = Object.values(day).some(arr => Array.isArray(arr) && arr.length > 0);
 
       return (
-        <div style={{ padding:"16px 16px 24px" }}>
+        <div>
+          {/* Sticky header: date nav + macro card + MEALS label */}
+          <div style={{ position:"sticky", top:0, zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
           {/* Date navigation */}
           <div style={{ display:"flex", alignItems:"center", background:S.panel, borderRadius:12, padding:"10px 4px", marginBottom:14, border:"1px solid "+S.border }}>
             <button
@@ -1176,12 +1178,15 @@
           </div>
 
           {/* Section label divider */}
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12, marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12, marginBottom:0, paddingBottom:12 }}>
             <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
             <span style={{ fontSize:9, letterSpacing:2.5, color:S.dimmer, fontWeight:700 }}>MEALS</span>
             <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
           </div>
+          </div>{/* end sticky header */}
 
+          {/* Scrollable meals */}
+          <div style={{ padding:"10px 16px 24px" }}>
           {/* Meals */}
           {meals.map(m => {
             const entries = day[m.k] || [];
@@ -1232,6 +1237,7 @@
               {isToday ? "Log your first meal of the day." : "No entries for this day."}
             </div>
           )}
+          </div>{/* end scrollable meals */}
         </div>
       );
     }
