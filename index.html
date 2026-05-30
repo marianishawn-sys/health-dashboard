@@ -702,6 +702,47 @@
         init();
       }, []);
 
+      // One-shot background fetch: populate fibre for top-used foods missing it
+      const fibreFetchRan = useRef(false);
+      useEffect(() => {
+        if (loading || data.foods.length === 0 || fibreFetchRan.current) return;
+        fibreFetchRan.current = true;
+        const needsFibre = data.foods
+          .filter(f => (f.useCount || 0) > 0 && !(f.per100g || {}).fibre)
+          .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
+          .slice(0, 10);
+        if (needsFibre.length === 0) return;
+        let live = true;
+        (async () => {
+          const updates = {};
+          for (const food of needsFibre) {
+            if (!live) break;
+            try {
+              const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+                encodeURIComponent(food.name) +
+                "&search_simple=1&action=process&json=1&page_size=1&fields=nutriments";
+              const res = await fetch(url);
+              const json = await res.json();
+              const p = (json.products || []).find(p => p.nutriments);
+              if (p) {
+                const fibre = round(p.nutriments["fiber_100g"] || p.nutriments["fiber-dietary_100g"] || 0, 1);
+                if (fibre > 0) updates[food.id] = fibre;
+              }
+            } catch(e) {}
+            await new Promise(r => setTimeout(r, 350));
+          }
+          if (live && Object.keys(updates).length > 0) {
+            setData(prev => ({
+              ...prev,
+              foods: prev.foods.map(f => updates[f.id] !== undefined
+                ? { ...f, per100g: { ...f.per100g, fibre: updates[f.id] } }
+                : f)
+            }));
+          }
+        })();
+        return () => { live = false; };
+      }, [loading, data.foods.length]);
+
       const signIn = () => { if (tokenClient) tokenClient.requestAccessToken({ prompt: "" }); };
       const signOut = () => {
         if (driveAccessToken) {
@@ -1134,8 +1175,12 @@
             </div>
           </div>
 
-          {/* Divider */}
-          <div style={{ borderTop:"2px solid rgba(255,255,255,0.35)", margin:"14px 0" }} />
+          {/* Section label divider */}
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:12, marginBottom:14 }}>
+            <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
+            <span style={{ fontSize:9, letterSpacing:2.5, color:S.dimmer, fontWeight:700 }}>MEALS</span>
+            <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
+          </div>
 
           {/* Meals */}
           {meals.map(m => {
@@ -3178,8 +3223,12 @@ ${parseText}`;
             </div>
           )}
 
-          {/* Divider below controls */}
-          <div style={{ borderTop:"2px solid rgba(255,255,255,0.35)", margin:"4px 0 16px" }} />
+          {/* Section label divider */}
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6, marginBottom:14 }}>
+            <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
+            <span style={{ fontSize:9, letterSpacing:2.5, color:S.dimmer, fontWeight:700 }}>INVENTORY</span>
+            <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
+          </div>
 
           {/* Item list */}
           {Object.entries(grouped)
