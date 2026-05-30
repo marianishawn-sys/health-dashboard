@@ -958,7 +958,7 @@
       return (
         <div style={{ minHeight:"100vh", background:S.bg, color:S.text, paddingBottom:80 }}>
           {/* Header */}
-          <div style={{ padding:"14px 20px 8px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid "+S.border }}>
+          <div style={{ position:"sticky", top:0, zIndex:20, background:S.bg, padding:"14px 20px 8px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid "+S.border }}>
             <div>
               <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>CONCIERGE</div>
               <div style={{ fontSize:16, fontWeight:500, marginTop:2 }}>
@@ -1114,7 +1114,7 @@
       return (
         <div>
           {/* Sticky header: date nav + macro card + MEALS label */}
-          <div style={{ position:"sticky", top:0, zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
+          <div style={{ position:"sticky", top:"60px", zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
           {/* Date navigation */}
           <div style={{ display:"flex", alignItems:"center", background:S.panel, borderRadius:12, padding:"10px 4px", marginBottom:14, border:"1px solid "+S.border }}>
             <button
@@ -3189,7 +3189,9 @@ ${parseText}`;
       if (scanMode) return <PantryScan mode={scanMode} apiKey={apiKey} onClose={() => setScanMode(null)} onResult={handleScanResult} />;
 
       return (
-        <div style={{ padding:"14px 16px 24px" }}>
+        <div>
+          {/* Sticky controls */}
+          <div style={{ position:"sticky", top:"60px", zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
           {/* Action buttons */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
             {[["📷","SCAN","single"],["📦","BULK","bulk"],["＋","ADD",null]].map(([icon,lbl,mode]) => (
@@ -3230,12 +3232,15 @@ ${parseText}`;
           )}
 
           {/* Section label divider */}
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6, marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6, marginBottom:0, paddingBottom:12 }}>
             <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
             <span style={{ fontSize:9, letterSpacing:2.5, color:S.dimmer, fontWeight:700 }}>INVENTORY</span>
             <div style={{ flex:1, height:1, background:"rgba(255,255,255,0.18)" }} />
           </div>
+          </div>{/* end sticky controls */}
 
+          {/* Scrollable item list */}
+          <div style={{ padding:"8px 16px 24px" }}>
           {/* Item list */}
           {Object.entries(grouped)
             .filter(([, items]) => items.length > 0)
@@ -3321,6 +3326,7 @@ ${parseText}`;
               Pantry is empty. Scan an item or add manually.
             </div>
           )}
+          </div>{/* end scrollable item list */}
 
           {/* Item edit modal */}
           {editItemId && (
