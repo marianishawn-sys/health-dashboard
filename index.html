@@ -1129,7 +1129,7 @@
           </div>
 
           {/* Divider */}
-          <div style={{ height:1, background:"rgba(255,255,255,0.25)", margin:"14px 0" }} />
+          <div style={{ height:"2px", background:"rgba(255,255,255,0.35)", margin:"14px 0" }} />
 
           {/* Meals */}
           {meals.map(m => {
@@ -1797,7 +1797,7 @@
         try {
           const base64 = dataUrl.split(",")[1];
           const mimeType = dataUrl.match(/data:(.*?);/)[1];
-          const prompt = "Identify the food(s) visible in this image. For each distinct food, provide: name (specific, e.g. 'Grilled chicken thigh' not 'Chicken'), estimated weight in grams visible in the photo, and macros per 100g (calories, protein, carbs, fat). If a nutrition label is visible, use those exact values and back-calculate per 100g. If a barcode is visible, identify the product if possible. Return ONLY valid JSON in this exact shape, no other text or markdown: {\"foods\":[{\"name\":\"string\",\"brand\":\"string or empty\",\"estimatedGrams\":number,\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number},\"confidence\":\"HIGH|MEDIUM|LOW\"}]}";
+          const prompt = "Identify the food(s) visible in this image. For each distinct food, provide: name (specific, e.g. 'Grilled chicken thigh' not 'Chicken'), estimated weight in grams visible in the photo, and macros per 100g (calories, protein, carbs, fat, fibre). If a nutrition label is visible, use those exact values and back-calculate per 100g. If a barcode is visible, identify the product if possible. Return ONLY valid JSON in this exact shape, no other text or markdown: {\"foods\":[{\"name\":\"string\",\"brand\":\"string or empty\",\"estimatedGrams\":number,\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"confidence\":\"HIGH|MEDIUM|LOW\"}]}";
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -1829,6 +1829,7 @@
           const parsed = JSON.parse(jsonMatch[0]);
           const foods = (parsed.foods || []).map(f => ({
             ...f,
+            per100g: { fibre: 0, ...f.per100g },
             id: uid("scan"),
             selected: true,
           }));
@@ -1875,6 +1876,7 @@
                 protein: round(p.nutriments["proteins_100g"] || 0, 1),
                 carbs: round(p.nutriments["carbohydrates_100g"] || 0, 1),
                 fat: round(p.nutriments["fat_100g"] || 0, 1),
+                fibre: round(p.nutriments["fiber_100g"] || p.nutriments["fiber-dietary_100g"] || 0, 1),
               },
             }));
           }
@@ -1974,12 +1976,13 @@
                   </button>
                   <span style={{ flexShrink:0, fontSize:9, letterSpacing:1, color: r.confidence === "HIGH" ? S.green : r.confidence === "MEDIUM" ? S.accent : S.red }}>{r.confidence}</span>
                 </div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr", gap:4, marginBottom:6 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:4, marginBottom:6 }}>
                   <ScanField label="g" value={r.estimatedGrams} onChange={v => updateResult(r.id, "estimatedGrams", v)} />
                   <ScanField label="kcal/100g" value={r.per100g.cal} onChange={v => updateResult(r.id, "per100g.cal", v)} />
-                  <ScanField label="P/100g" value={r.per100g.protein} onChange={v => updateResult(r.id, "per100g.protein", v)} />
-                  <ScanField label="C/100g" value={r.per100g.carbs} onChange={v => updateResult(r.id, "per100g.carbs", v)} />
-                  <ScanField label="F/100g" value={r.per100g.fat} onChange={v => updateResult(r.id, "per100g.fat", v)} />
+                  <ScanField label="PRO/100g" value={r.per100g.protein} onChange={v => updateResult(r.id, "per100g.protein", v)} />
+                  <ScanField label="CRB/100g" value={r.per100g.carbs} onChange={v => updateResult(r.id, "per100g.carbs", v)} />
+                  <ScanField label="FAT/100g" value={r.per100g.fat} onChange={v => updateResult(r.id, "per100g.fat", v)} />
+                  <ScanField label="FIB/100g" value={r.per100g.fibre ?? 0} onChange={v => updateResult(r.id, "per100g.fibre", v)} />
                 </div>
               </div>
             ))}
@@ -2974,6 +2977,13 @@ ${parseText}`;
       const [addUnit, setAddUnit]       = useState("portions");
       const [addPar, setAddPar]         = useState("");
 
+      const [editItemId, setEditItemId] = useState(null);
+      const [editName, setEditName]     = useState("");
+      const [editCat, setEditCat]       = useState("fridge");
+      const [editTracking, setEditTracking] = useState("count");
+      const [editUnit, setEditUnit]     = useState("portions");
+      const [editPar, setEditPar]       = useState("");
+
       const ingredients = data.ingredients || [];
       const pantry      = data.pantry      || [];
       const getIng = (itemId) => ingredients.find(i => i.id === itemId) || { name: itemId || "Unknown", category: "pantry" };
@@ -3027,6 +3037,36 @@ ${parseText}`;
           return { ...p, trackingType:"state", state:"have", quantity:null };
         });
         setData({ ...data, pantry: updated });
+      };
+
+      const openEdit = (item) => {
+        const ing = getIng(item.itemId);
+        setEditName(ing.name || "");
+        setEditCat(ing.category || "fridge");
+        setEditUnit(item.unit || ing.defaultUnit || "portions");
+        setEditPar(item.parLevel != null ? String(item.parLevel) : "");
+        setEditTracking(item.trackingType || "count");
+        setEditItemId(item.id);
+      };
+
+      const saveItemEdit = () => {
+        const item = pantry.find(p => p.id === editItemId);
+        if (!item) { setEditItemId(null); return; }
+        const par = editPar !== "" ? parseFloat(editPar) : null;
+        const toType = editTracking;
+        const updatedPantry = pantry.map(p => {
+          if (p.id !== editItemId) return p;
+          const base = { ...p, unit: editUnit, parLevel: isNaN(par) ? null : par, trackingType: toType };
+          if (toType === "count" && p.trackingType !== "count") return { ...base, quantity: 0, state: null };
+          if (toType === "state" && p.trackingType !== "state") return { ...base, state: "have", quantity: null };
+          return base;
+        });
+        const updatedIngs = ingredients.map(i => {
+          if (i.id !== item.itemId) return i;
+          return { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit };
+        });
+        setData({ ...data, ingredients: updatedIngs, pantry: updatedPantry });
+        setEditItemId(null);
       };
 
       // Scan result → link to registry
@@ -3133,7 +3173,7 @@ ${parseText}`;
           )}
 
           {/* Divider below controls */}
-          <div style={{ height:1, background:"rgba(255,255,255,0.25)", margin:"4px 0 16px" }} />
+          <div style={{ height:"2px", background:"rgba(255,255,255,0.35)", margin:"4px 0 16px" }} />
 
           {/* Item list */}
           {Object.entries(grouped)
@@ -3151,7 +3191,7 @@ ${parseText}`;
                   <div key={item.id} style={{ background:S.panel, border:`1px solid ${status==="red"?"rgba(248,113,113,0.3)":status==="yellow"?"rgba(200,169,110,0.25)":S.border}`, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                       <div style={{ width:8, height:8, borderRadius:"50%", background:dot, flexShrink:0 }} />
-                      <div style={{ flex:1, fontSize:13, color:S.text, fontWeight:500, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ing.name}</div>
+                      <button onClick={() => openEdit(item)} style={{ flex:1, fontSize:13, color:S.text, fontWeight:500, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", background:"none", border:"none", cursor:"pointer", textAlign:"left", padding:0 }}>{ing.name}</button>
                       {item.trackingType==="count" ? (
                         <div style={{ display:"flex", alignItems:"center", gap:5 }}>
                           <button onClick={()=>adjustQty(item.id,-step)} style={{ width:34,height:34,borderRadius:8,background:S.panel2,border:"1px solid "+S.border,color:S.text,fontSize:18,cursor:"pointer",lineHeight:1,flexShrink:0 }}>−</button>
@@ -3218,6 +3258,46 @@ ${parseText}`;
           {pantry.length===0 && (
             <div style={{ padding:"40px 20px",textAlign:"center",color:S.dim,fontSize:13 }}>
               Pantry is empty. Scan an item or add manually.
+            </div>
+          )}
+
+          {/* Item edit modal */}
+          {editItemId && (
+            <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:200,display:"flex",alignItems:"flex-end" }} onClick={e=>{if(e.target===e.currentTarget)setEditItemId(null);}}>
+              <div style={{ background:S.panel,borderRadius:"16px 16px 0 0",padding:"20px 18px 36px",width:"100%",maxHeight:"85vh",overflowY:"auto",boxSizing:"border-box" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                  <div style={{ fontSize:10,letterSpacing:2,color:S.dim,fontWeight:700 }}>EDIT ITEM</div>
+                  <button onClick={()=>setEditItemId(null)} style={{ background:"none",border:"none",color:S.dim,fontSize:22,cursor:"pointer",lineHeight:1 }}>×</button>
+                </div>
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>NAME</div>
+                <input type="text" value={editName} onChange={e=>setEditName(e.target.value)} autoFocus
+                  style={{ width:"100%",background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"10px 12px",color:S.text,fontSize:13,outline:"none",marginBottom:12,boxSizing:"border-box" }} />
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>LOCATION</div>
+                <div style={{ display:"flex",gap:5,marginBottom:12 }}>
+                  {["freezer","fridge","pantry"].map(c=>abtn(editCat===c,c.toUpperCase(),()=>setEditCat(c)))}
+                </div>
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>TRACKING MODE</div>
+                <div style={{ display:"flex",gap:5,marginBottom:12 }}>
+                  {abtn(editTracking==="count","COUNT",()=>setEditTracking("count"))}
+                  {abtn(editTracking==="state","HAVE / LOW / OUT",()=>setEditTracking("state"))}
+                </div>
+                {editTracking==="count" && (<>
+                  <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>UNIT & PAR LEVEL</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
+                    <input type="text" placeholder="Unit (g, kg, portions…)" value={editUnit} onChange={e=>setEditUnit(e.target.value)}
+                      style={{ background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none" }} />
+                    <input type="text" inputMode="decimal" placeholder="Par level" value={editPar} onChange={e=>setEditPar(e.target.value)}
+                      style={{ background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none" }} />
+                  </div>
+                </>)}
+                <button onClick={saveItemEdit} style={{ width:"100%",background:S.accent,color:"#0a0c0f",border:"none",borderRadius:10,padding:"13px",fontSize:12,fontWeight:700,letterSpacing:1,cursor:"pointer",marginBottom:10 }}>
+                  SAVE CHANGES
+                </button>
+                <button onClick={()=>{removeItem(editItemId);setEditItemId(null);}}
+                  style={{ width:"100%",background:"none",border:"1px solid rgba(248,113,113,0.35)",color:S.red,borderRadius:10,padding:"10px",fontSize:11,fontWeight:600,letterSpacing:1,cursor:"pointer" }}>
+                  REMOVE FROM PANTRY
+                </button>
+              </div>
             </div>
           )}
         </div>
