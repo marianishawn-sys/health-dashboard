@@ -62,7 +62,7 @@
       border: "rgba(255,255,255,0.07)", borderHi: "rgba(200,169,110,0.3)",
     };
 
-    const isoToday = () => new Date().toISOString().slice(0,10);
+    const isoToday = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
     const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
     const round = (n, d=0) => { const f = Math.pow(10,d); return Math.round(n*f)/f; };
 
@@ -615,8 +615,10 @@
       fibre: round((per100g.fibre || 0) * grams / 100, 1),
     });
 
-    const sumLogged = (logs, date) => {
+    const sumLogged = (logs, date, foods = []) => {
       const day = logs[date] || {};
+      const foodMap = {};
+      foods.forEach(f => { foodMap[f.id] = f; });
       let cal=0, protein=0, carbs=0, fat=0, fibre=0;
       ["breakfast","lunch","dinner","snacks"].forEach(meal => {
         (day[meal] || []).forEach(e => {
@@ -624,7 +626,11 @@
           protein += e.protein || 0;
           carbs += e.carbs || 0;
           fat += e.fat || 0;
-          fibre += e.fibre || 0;
+          let ef = e.fibre || 0;
+          if (!ef && e.foodId && foodMap[e.foodId] && foodMap[e.foodId].per100g.fibre) {
+            ef = round((foodMap[e.foodId].per100g.fibre * (e.grams || 0)) / 100, 1);
+          }
+          fibre += ef;
         });
       });
       return { cal: round(cal), protein: round(protein,1), carbs: round(carbs,1), fat: round(fat,1), fibre: round(fibre,1) };
@@ -768,7 +774,7 @@
       // ─── Date helpers ───
       const today = isoToday();
       const targets = isHighCarb(new Date(selectedDate + "T12:00:00")) ? TARGETS.high : TARGETS.low;
-      const totals = useMemo(() => sumLogged(data.logs, selectedDate), [data.logs, selectedDate]);
+      const totals = useMemo(() => sumLogged(data.logs, selectedDate, data.foods), [data.logs, selectedDate, data.foods]);
 
       const openFoodPicker = (slot) => {
         setFoodPickerSlot(slot);
@@ -1129,7 +1135,7 @@
           </div>
 
           {/* Divider */}
-          <div style={{ height:"2px", background:"rgba(255,255,255,0.35)", margin:"14px 0" }} />
+          <div style={{ borderTop:"2px solid rgba(255,255,255,0.35)", margin:"14px 0" }} />
 
           {/* Meals */}
           {meals.map(m => {
@@ -3173,7 +3179,7 @@ ${parseText}`;
           )}
 
           {/* Divider below controls */}
-          <div style={{ height:"2px", background:"rgba(255,255,255,0.35)", margin:"4px 0 16px" }} />
+          <div style={{ borderTop:"2px solid rgba(255,255,255,0.35)", margin:"4px 0 16px" }} />
 
           {/* Item list */}
           {Object.entries(grouped)
