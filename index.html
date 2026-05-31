@@ -1268,6 +1268,7 @@
       const [query, setQuery] = useState("");
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
+      const [prefillName, setPrefillName] = useState("");
       const searchRef = useRef(null);
 
       useEffect(() => {
@@ -1284,6 +1285,15 @@
           .slice(0, 60)
           .map(x => x.food);
       }, [data.foods, query]);
+
+      const pantryStubs = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (q.length < 2) return [];
+        const foodNames = new Set((data.foods || []).map(f => f.name.trim().toLowerCase()));
+        return (data.ingredients || [])
+          .filter(ing => ing.name.toLowerCase().includes(q) && !foodNames.has(ing.name.trim().toLowerCase()))
+          .slice(0, 5);
+      }, [data.ingredients, data.foods, query]);
 
       const pickFood = (f) => {
         setSelectedFood(f);
@@ -1319,8 +1329,9 @@
 
             {mode === "manual" && (
               <ManualEntry
-                onCancel={() => setMode("search")}
+                onCancel={() => { setPrefillName(""); setMode("search"); }}
                 onSave={handleManualSave}
+                initialName={prefillName}
               />
             )}
 
@@ -1387,6 +1398,18 @@
                       {f.useCount > 0 && (
                         <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
                       )}
+                    </button>
+                  ))}
+                  {pantryStubs.map(ing => (
+                    <button key={ing.id} onClick={() => { setPrefillName(ing.name); setMode("manual"); }}
+                      style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}33`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {ing.name}
+                        </div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>Add macros to log this pantry item</div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
                     </button>
                   ))}
                 </div>
@@ -1616,8 +1639,8 @@
     }
 
     // ───────────────────── MANUAL ENTRY ─────────────────────
-    function ManualEntry({ onCancel, onSave }) {
-      const [name, setName] = useState("");
+    function ManualEntry({ onCancel, onSave, initialName = "" }) {
+      const [name, setName] = useState(initialName);
       const [brand, setBrand] = useState("");
       const [refUnit, setRefUnit] = useState("g");
       const [refGrams, setRefGrams] = useState(100);  // always stored in grams
