@@ -1295,7 +1295,9 @@
         return {
           pantryFoods: matches
             .filter(ing => ing.per100g && ing.per100g.cal != null)
-            .map(ing => ({ id: "ing_" + ing.id, name: ing.name, brand: "", per100g: ing.per100g, category: "pantry", source: "pantry", useCount: 0 })),
+            .map(ing => ({ id: "ing_" + ing.id, name: ing.name, brand: "", per100g: ing.per100g,
+              refPortion: ing.servingG ? { grams: ing.servingG, label: "1 serving (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
+              category: "pantry", source: "pantry", useCount: 0 })),
           pantryStubs: matches
             .filter(ing => !ing.per100g || ing.per100g.cal == null)
             .slice(0, 5),
@@ -3086,6 +3088,7 @@ ${parseText}`;
       const [editCarbs, setEditCarbs]   = useState("");
       const [editFat, setEditFat]       = useState("");
       const [editFibre, setEditFibre]   = useState("");
+      const [editServing, setEditServing] = useState("");
 
       const ingredients = data.ingredients || [];
       const pantry      = data.pantry      || [];
@@ -3155,6 +3158,7 @@ ${parseText}`;
         setEditCarbs(m.carbs != null ? String(m.carbs) : "");
         setEditFat(m.fat != null ? String(m.fat) : "");
         setEditFibre(m.fibre != null ? String(m.fibre) : "");
+        setEditServing(ing.servingG != null ? String(ing.servingG) : "");
         setEditItemId(item.id);
       };
 
@@ -3175,7 +3179,8 @@ ${parseText}`;
         const per100g = hasMacros ? { cal: macroVals.cal||0, protein: macroVals.protein||0, carbs: macroVals.carbs||0, fat: macroVals.fat||0, fibre: macroVals.fibre||0 } : undefined;
         const updatedIngs = ingredients.map(i => {
           if (i.id !== item.itemId) return i;
-          const base = { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit };
+          const servingG = parseFloat(editServing);
+          const base = { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit, ...(servingG > 0 ? { servingG } : {}) };
           return per100g ? { ...base, per100g } : base;
         });
         setData({ ...data, ingredients: updatedIngs, pantry: updatedPantry });
@@ -3414,7 +3419,7 @@ ${parseText}`;
                   </div>
                 </>)}
                 <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>MACROS PER 100g <span style={{ color:S.dimmer,fontWeight:400 }}>(optional — enables logging)</span></div>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:12 }}>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:8 }}>
                   {[["Cal",editCal,setEditCal],["Pro",editProtein,setEditProtein],["Crb",editCarbs,setEditCarbs],["Fat",editFat,setEditFat],["Fib",editFibre,setEditFibre]].map(([lbl,v,sv])=>(
                     <div key={lbl}>
                       <input type="text" inputMode="decimal" placeholder="0" value={v} onChange={e=>sv(e.target.value)}
@@ -3422,6 +3427,11 @@ ${parseText}`;
                       <div style={{ fontSize:8,color:S.dimmer,textAlign:"center",marginTop:2 }}>{lbl}</div>
                     </div>
                   ))}
+                </div>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
+                  <input type="text" inputMode="decimal" placeholder="Serving size (g)" value={editServing} onChange={e=>setEditServing(e.target.value)}
+                    style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 10px",color:S.text,fontSize:12,outline:"none" }} />
+                  <span style={{ fontSize:9,color:S.dimmer,whiteSpace:"nowrap" }}>g per serving</span>
                 </div>
                 <button onClick={saveItemEdit} style={{ width:"100%",background:S.accent,color:"#0a0c0f",border:"none",borderRadius:10,padding:"13px",fontSize:12,fontWeight:700,letterSpacing:1,cursor:"pointer",marginBottom:10 }}>
                   SAVE CHANGES
