@@ -1286,13 +1286,20 @@
           .map(x => x.food);
       }, [data.foods, query]);
 
-      const pantryStubs = useMemo(() => {
+      const { pantryFoods, pantryStubs } = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (q.length < 2) return [];
+        if (q.length < 2) return { pantryFoods: [], pantryStubs: [] };
         const foodNames = new Set((data.foods || []).map(f => f.name.trim().toLowerCase()));
-        return (data.ingredients || [])
-          .filter(ing => ing.name.toLowerCase().includes(q) && !foodNames.has(ing.name.trim().toLowerCase()))
-          .slice(0, 5);
+        const matches = (data.ingredients || [])
+          .filter(ing => ing.name.toLowerCase().includes(q) && !foodNames.has(ing.name.trim().toLowerCase()));
+        return {
+          pantryFoods: matches
+            .filter(ing => ing.per100g && ing.per100g.cal != null)
+            .map(ing => ({ id: "ing_" + ing.id, name: ing.name, brand: "", per100g: ing.per100g, category: "pantry", source: "pantry", useCount: 0 })),
+          pantryStubs: matches
+            .filter(ing => !ing.per100g || ing.per100g.cal == null)
+            .slice(0, 5),
+        };
       }, [data.ingredients, data.foods, query]);
 
       const pickFood = (f) => {
@@ -1398,6 +1405,17 @@
                       {f.useCount > 0 && (
                         <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
                       )}
+                    </button>
+                  ))}
+                  {pantryFoods.map(f => (
+                    <button key={f.id} onClick={() => pickFood(f)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                        </div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
                     </button>
                   ))}
                   {pantryStubs.map(ing => (
@@ -3063,6 +3081,11 @@ ${parseText}`;
       const [editTracking, setEditTracking] = useState("count");
       const [editUnit, setEditUnit]     = useState("portions");
       const [editPar, setEditPar]       = useState("");
+      const [editCal, setEditCal]       = useState("");
+      const [editProtein, setEditProtein] = useState("");
+      const [editCarbs, setEditCarbs]   = useState("");
+      const [editFat, setEditFat]       = useState("");
+      const [editFibre, setEditFibre]   = useState("");
 
       const ingredients = data.ingredients || [];
       const pantry      = data.pantry      || [];
@@ -3121,11 +3144,17 @@ ${parseText}`;
 
       const openEdit = (item) => {
         const ing = getIng(item.itemId);
+        const m = ing.per100g || {};
         setEditName(ing.name || "");
         setEditCat(ing.category || "fridge");
         setEditUnit(item.unit || ing.defaultUnit || "portions");
         setEditPar(item.parLevel != null ? String(item.parLevel) : "");
         setEditTracking(item.trackingType || "count");
+        setEditCal(m.cal != null ? String(m.cal) : "");
+        setEditProtein(m.protein != null ? String(m.protein) : "");
+        setEditCarbs(m.carbs != null ? String(m.carbs) : "");
+        setEditFat(m.fat != null ? String(m.fat) : "");
+        setEditFibre(m.fibre != null ? String(m.fibre) : "");
         setEditItemId(item.id);
       };
 
@@ -3141,9 +3170,13 @@ ${parseText}`;
           if (toType === "state" && p.trackingType !== "state") return { ...base, state: "have", quantity: null };
           return base;
         });
+        const macroVals = { cal: parseFloat(editCal), protein: parseFloat(editProtein), carbs: parseFloat(editCarbs), fat: parseFloat(editFat), fibre: parseFloat(editFibre) };
+        const hasMacros = !isNaN(macroVals.cal);
+        const per100g = hasMacros ? { cal: macroVals.cal||0, protein: macroVals.protein||0, carbs: macroVals.carbs||0, fat: macroVals.fat||0, fibre: macroVals.fibre||0 } : undefined;
         const updatedIngs = ingredients.map(i => {
           if (i.id !== item.itemId) return i;
-          return { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit };
+          const base = { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit };
+          return per100g ? { ...base, per100g } : base;
         });
         setData({ ...data, ingredients: updatedIngs, pantry: updatedPantry });
         setEditItemId(null);
@@ -3380,6 +3413,16 @@ ${parseText}`;
                       style={{ background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none" }} />
                   </div>
                 </>)}
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>MACROS PER 100g <span style={{ color:S.dimmer,fontWeight:400 }}>(optional — enables logging)</span></div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:12 }}>
+                  {[["Cal",editCal,setEditCal],["Pro",editProtein,setEditProtein],["Crb",editCarbs,setEditCarbs],["Fat",editFat,setEditFat],["Fib",editFibre,setEditFibre]].map(([lbl,v,sv])=>(
+                    <div key={lbl}>
+                      <input type="text" inputMode="decimal" placeholder="0" value={v} onChange={e=>sv(e.target.value)}
+                        style={{ width:"100%",background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 3px",color:S.text,fontSize:11,outline:"none",textAlign:"center" }} />
+                      <div style={{ fontSize:8,color:S.dimmer,textAlign:"center",marginTop:2 }}>{lbl}</div>
+                    </div>
+                  ))}
+                </div>
                 <button onClick={saveItemEdit} style={{ width:"100%",background:S.accent,color:"#0a0c0f",border:"none",borderRadius:10,padding:"13px",fontSize:12,fontWeight:700,letterSpacing:1,cursor:"pointer",marginBottom:10 }}>
                   SAVE CHANGES
                 </button>
