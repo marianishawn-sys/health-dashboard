@@ -186,33 +186,58 @@
     // ───────────────────── INGREDIENT REGISTRY SEED ─────────────────────
     const SEED_INGREDIENTS = [
       // Freezer
-      { id:"ing_strip_loin",       name:"Strip loin",          defaultUnit:"portions", category:"freezer" },
-      { id:"ing_chicken_thigh",    name:"Chicken thighs",      defaultUnit:"portions", category:"freezer" },
-      { id:"ing_chicken_breast_f", name:"Chicken breasts",     defaultUnit:"portions", category:"freezer" },
-      { id:"ing_venison",          name:"Venison",             defaultUnit:"portions", category:"freezer" },
-      { id:"ing_pickerel",         name:"Pickerel",            defaultUnit:"portions", category:"freezer" },
-      { id:"ing_shrimp",           name:"Shrimp",              defaultUnit:"bags",     category:"freezer" },
-      { id:"ing_bbq_sausage",      name:"BBQ sausage",         defaultUnit:"portions", category:"freezer" },
-      { id:"ing_turkey_breast",    name:"Turkey breast",       defaultUnit:"portions", category:"freezer" },
-      { id:"ing_round_roast",      name:"Round roast",         defaultUnit:"portions", category:"freezer" },
-      { id:"ing_beef_ribs",        name:"Beef back ribs",      defaultUnit:"racks",    category:"freezer" },
-      { id:"ing_ground_bison",     name:"Ground bison",        defaultUnit:"g",        category:"freezer" },
+      { id:"ing_strip_loin",       name:"Strip loin",          defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:271, protein:26,  carbs:0,   fat:18,   fibre:0 }, servingG:170 },
+      { id:"ing_chicken_thigh",    name:"Chicken thighs",      defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:209, protein:26,  carbs:0,   fat:11,   fibre:0 }, servingG:150 },
+      { id:"ing_chicken_breast_f", name:"Chicken breasts",     defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:165, protein:31,  carbs:0,   fat:3.6,  fibre:0 }, servingG:150 },
+      { id:"ing_venison",          name:"Venison",             defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:158, protein:30,  carbs:0,   fat:3.2,  fibre:0 }, servingG:170 },
+      { id:"ing_pickerel",         name:"Pickerel",            defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:93,  protein:20,  carbs:0,   fat:1.2,  fibre:0 }, servingG:150 },
+      { id:"ing_shrimp",           name:"Shrimp",              defaultUnit:"bags",     category:"freezer",
+        per100g:{ cal:99,  protein:24,  carbs:0.2, fat:0.3,  fibre:0 }, servingG:85  },
+      { id:"ing_bbq_sausage",      name:"BBQ sausage",         defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:301, protein:13,  carbs:1,   fat:27,   fibre:0 }, servingG:85  },
+      { id:"ing_turkey_breast",    name:"Turkey breast",       defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:135, protein:30,  carbs:0,   fat:1,    fibre:0 }, servingG:150 },
+      { id:"ing_round_roast",      name:"Round roast",         defaultUnit:"portions", category:"freezer",
+        per100g:{ cal:189, protein:28,  carbs:0,   fat:8,    fibre:0 }, servingG:170 },
+      { id:"ing_beef_ribs",        name:"Beef back ribs",      defaultUnit:"racks",    category:"freezer",
+        per100g:{ cal:292, protein:17,  carbs:0,   fat:25,   fibre:0 }, servingG:280 },
+      { id:"ing_ground_bison",     name:"Ground bison",        defaultUnit:"g",        category:"freezer",
+        per100g:{ cal:146, protein:24,  carbs:0,   fat:5,    fibre:0 }, servingG:113 },
       // Fridge
-      { id:"ing_eggs",             name:"Free-run eggs",       defaultUnit:"eggs",      category:"fridge" },
-      { id:"ing_bacon",            name:"Bacon",               defaultUnit:"pkg",       category:"fridge" },
-      { id:"ing_greek_yogurt",     name:"Greek yogurt",        defaultUnit:"containers",category:"fridge" },
-      { id:"ing_cottage_cheese",   name:"Cottage cheese",      defaultUnit:"containers",category:"fridge" },
-      { id:"ing_grana_padano",     name:"Grana Padano",        defaultUnit:"portions",  category:"fridge" },
-      { id:"ing_friulano",         name:"Friulano",            defaultUnit:"portions",  category:"fridge" },
-      { id:"ing_cheddar",          name:"Cheddar",             defaultUnit:"portions",  category:"fridge" },
-      { id:"ing_mozzarella",       name:"Mozzarella",          defaultUnit:"portions",  category:"fridge" },
-      { id:"ing_beef_stock",       name:"Beef stock",          defaultUnit:"cartons",   category:"fridge" },
-      { id:"ing_sweet_potato",     name:"Sweet potatoes",      defaultUnit:"portions",  category:"fridge" },
+      { id:"ing_eggs",             name:"Free-run eggs",       defaultUnit:"eggs",      category:"fridge",
+        per100g:{ cal:143, protein:13,  carbs:1,   fat:10,   fibre:0 }, servingG:50  },
+      { id:"ing_bacon",            name:"Bacon",               defaultUnit:"pkg",       category:"fridge",
+        per100g:{ cal:541, protein:37,  carbs:1.4, fat:42,   fibre:0 }, servingG:28  },
+      { id:"ing_greek_yogurt",     name:"Greek yogurt",        defaultUnit:"containers",category:"fridge",
+        per100g:{ cal:97,  protein:9,   carbs:4,   fat:5,    fibre:0 }, servingG:170 },
+      { id:"ing_cottage_cheese",   name:"Cottage cheese",      defaultUnit:"containers",category:"fridge",
+        per100g:{ cal:84,  protein:11,  carbs:3.4, fat:2.3,  fibre:0 }, servingG:113 },
+      { id:"ing_grana_padano",     name:"Grana Padano",        defaultUnit:"portions",  category:"fridge",
+        per100g:{ cal:384, protein:33,  carbs:0,   fat:28,   fibre:0 }, servingG:30  },
+      { id:"ing_friulano",         name:"Friulano",            defaultUnit:"portions",  category:"fridge",
+        per100g:{ cal:346, protein:23,  carbs:0.5, fat:28,   fibre:0 }, servingG:30  },
+      { id:"ing_cheddar",          name:"Cheddar",             defaultUnit:"portions",  category:"fridge",
+        per100g:{ cal:403, protein:25,  carbs:1.3, fat:33,   fibre:0 }, servingG:30  },
+      { id:"ing_mozzarella",       name:"Mozzarella",          defaultUnit:"portions",  category:"fridge",
+        per100g:{ cal:280, protein:20,  carbs:2.2, fat:22,   fibre:0 }, servingG:30  },
+      { id:"ing_beef_stock",       name:"Beef stock",          defaultUnit:"cartons",   category:"fridge",
+        per100g:{ cal:8,   protein:1.3, carbs:0.6, fat:0,    fibre:0 }, servingG:240 },
+      { id:"ing_sweet_potato",     name:"Sweet potatoes",      defaultUnit:"portions",  category:"fridge",
+        per100g:{ cal:86,  protein:1.6, carbs:20,  fat:0.1,  fibre:3 }, servingG:150 },
       // Pantry staples
-      { id:"ing_evoo",             name:"Extra virgin olive oil",defaultUnit:"bottles", category:"pantry" },
-      { id:"ing_pasta",            name:"Pasta",               defaultUnit:"portions",  category:"pantry" },
-      { id:"ing_olives",           name:"Olives",              defaultUnit:"jars",      category:"pantry" },
-      { id:"ing_honey",            name:"Honey",               defaultUnit:"jars",      category:"pantry" },
+      { id:"ing_evoo",             name:"Extra virgin olive oil",defaultUnit:"bottles", category:"pantry",
+        per100g:{ cal:884, protein:0,   carbs:0,   fat:100,  fibre:0 }, servingG:14  },
+      { id:"ing_pasta",            name:"Pasta",               defaultUnit:"portions",  category:"pantry",
+        per100g:{ cal:371, protein:13,  carbs:75,  fat:1.5,  fibre:3 }, servingG:85  },
+      { id:"ing_olives",           name:"Olives",              defaultUnit:"jars",      category:"pantry",
+        per100g:{ cal:115, protein:0.8, carbs:6.3, fat:10.7, fibre:1.5}, servingG:30 },
+      { id:"ing_honey",            name:"Honey",               defaultUnit:"jars",      category:"pantry",
+        per100g:{ cal:304, protein:0.3, carbs:82,  fat:0,    fibre:0 }, servingG:21  },
       { id:"ing_sourdough_starter",name:"Sourdough starter",   defaultUnit:"portions",  category:"pantry" },
     ];
 
@@ -417,6 +442,23 @@
           }
           return f;
         }),
+      };
+    };
+
+    // Backfill per100g + servingG from SEED_INGREDIENTS into stored ingredients missing them
+    const backfillIngredientMacros = (data) => {
+      if (!data || !data.ingredients) return data;
+      const macroMap = {};
+      SEED_INGREDIENTS.forEach(si => {
+        if (si.per100g) macroMap[si.id] = { per100g: si.per100g, servingG: si.servingG };
+      });
+      const needsUpdate = data.ingredients.some(i => macroMap[i.id] && !i.per100g);
+      if (!needsUpdate) return data;
+      return {
+        ...data,
+        ingredients: data.ingredients.map(i =>
+          (macroMap[i.id] && !i.per100g) ? { ...i, ...macroMap[i.id] } : i
+        ),
       };
     };
 
@@ -765,15 +807,16 @@
           const v4 = migrateToV4(v3b);
           const migrated = migrateGroceryList(v4);
           if (migrated.foods.length === 0) migrated.foods = seedFoodsWithIds();
+          const migratedIngs = backfillIngredientMacros(migrated);
 
           // Drain coach-*.json files before first render
           const { data: afterCoach, changed: coachChanged } =
-            await ingestCoachFiles(folderId, migrated);
+            await ingestCoachFiles(folderId, migratedIngs);
 
           setData(afterCoach);
 
           const needsSave = !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
-            || migrated !== v4 || coachChanged;
+            || migrated !== v4 || migratedIngs !== migrated || coachChanged;
           if (needsSave) {
             await writeDriveFile(fileId, afterCoach);
           }
