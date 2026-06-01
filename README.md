@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.4.6
+# Nutrition Concierge — v7.5.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,26 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.5.0 — Pantry Macros Backfill
+- All 24 seed pantry ingredients now carry `per100g` macros and `servingG` (standard serving size) directly in `SEED_INGREDIENTS`.
+- `backfillIngredientMacros` migration runs on every load: for each stored ingredient matching a seed ID that lacks macros, copies `per100g` + `servingG` from seed data. Idempotent. Triggers a Drive save when changes are made.
+- Serving sizes: strip loin 170g, chicken thigh/breast 150g, venison 170g, pickerel 150g, shrimp 85g, BBQ sausage 85g, turkey 150g, round roast 170g, beef ribs 280g, bison 113g, eggs 50g, bacon 28g, greek yogurt 170g, cottage cheese 113g, cheeses 30g, beef stock 240g, sweet potato 150g, EVOO 14g, pasta 85g, olives 30g, honey 21g.
+
+### v7.4.9 — Serving Size Field for Pantry Items
+- Pantry item edit modal: new **Serving size (g)** field below the macro grid. Saved as `ing.servingG`.
+- FoodPicker: pantry foods with `servingG` open the portion adjuster pre-set to that serving instead of defaulting to 100g.
+
+### v7.4.8 — Macros on Pantry Items
+- Pantry item edit modal: new **MACROS PER 100g** section (Cal / Pro / Crb / Fat / Fib) — optional, persisted to `ing.per100g`.
+- FoodPicker: pantry ingredients with macros show as full loggable results with a 🫙 PANTRY badge; those without show as stubs with a "Add macros to log" prompt.
+- Logged pantry-ingredient foods are added to `data.foods` via the normal `useFood` pipeline.
+
+### v7.4.7 — Pantry Items in Food Search
+- Food picker now searches `data.ingredients` (pantry registry) alongside `data.foods`.
+- Typing 2+ characters surfaces pantry items that have no food library entry as stub rows.
+- Tapping a stub opens Manual Entry pre-filled with the ingredient name.
+- `ManualEntry` gains `initialName` prop.
 
 ### v7.4.6 — Sticky Headers
 - **App header** (`CONCIERGE / date / HIGH·LOW`) is now `position:sticky` — stays pinned across all tabs when scrolling.
