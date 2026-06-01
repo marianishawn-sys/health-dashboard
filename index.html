@@ -445,20 +445,32 @@
       };
     };
 
-    // Backfill per100g + servingG from SEED_INGREDIENTS into stored ingredients missing them
+    // Backfill per100g + servingG from SEED_INGREDIENTS into stored ingredients missing them.
+    // Also handles known non-seed items matched by name.
+    const NAME_MACRO_BACKFILLS = [
+      { match: n => n.toLowerCase().includes("heart") && n.toLowerCase().includes("soil"),
+        per100g: { cal:372, protein:58.1, carbs:30.2, fat:2.3, fibre:2.3 }, servingG:43 },
+    ];
     const backfillIngredientMacros = (data) => {
       if (!data || !data.ingredients) return data;
       const macroMap = {};
       SEED_INGREDIENTS.forEach(si => {
         if (si.per100g) macroMap[si.id] = { per100g: si.per100g, servingG: si.servingG };
       });
-      const needsUpdate = data.ingredients.some(i => macroMap[i.id] && !i.per100g);
+      const needsUpdate = data.ingredients.some(i =>
+        (!i.per100g && macroMap[i.id]) ||
+        (!i.per100g && NAME_MACRO_BACKFILLS.some(nm => nm.match(i.name)))
+      );
       if (!needsUpdate) return data;
       return {
         ...data,
-        ingredients: data.ingredients.map(i =>
-          (macroMap[i.id] && !i.per100g) ? { ...i, ...macroMap[i.id] } : i
-        ),
+        ingredients: data.ingredients.map(i => {
+          if (i.per100g) return i;
+          if (macroMap[i.id]) return { ...i, ...macroMap[i.id] };
+          const nm = NAME_MACRO_BACKFILLS.find(nm => nm.match(i.name));
+          if (nm) return { ...i, per100g: nm.per100g, servingG: nm.servingG };
+          return i;
+        }),
       };
     };
 
