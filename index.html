@@ -1337,6 +1337,8 @@
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
       const [prefillName, setPrefillName] = useState("");
+      const [offResults, setOffResults] = useState(null); // null=idle, []=no results, [...]
+      const [offLoading, setOffLoading] = useState(false);
       const searchRef = useRef(null);
 
       useEffect(() => {
@@ -1375,6 +1377,47 @@
 
       const pickFood = (f) => {
         setSelectedFood(f);
+        setMode("portion");
+      };
+
+      const searchOFF = async () => {
+        const q = query.trim();
+        if (!q) return;
+        setOffLoading(true);
+        try {
+          const cacheKey = "off_cache_" + q.toLowerCase();
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) { setOffResults(JSON.parse(cached)); setOffLoading(false); return; }
+          const url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+            encodeURIComponent(q) + "&search_simple=1&action=process&json=1&page_size=6&fields=product_name,brands,nutriments";
+          const res = await fetch(url);
+          const json = await res.json();
+          const items = (json.products || [])
+            .filter(p => p.product_name && p.nutriments && p.nutriments["energy-kcal_100g"] != null)
+            .slice(0, 5)
+            .map(p => ({
+              id: uid("off"),
+              name: p.product_name,
+              brand: p.brands || "",
+              per100g: {
+                cal: Math.round(p.nutriments["energy-kcal_100g"] || 0),
+                protein: round(p.nutriments["proteins_100g"] || 0, 1),
+                carbs: round(p.nutriments["carbohydrates_100g"] || 0, 1),
+                fat: round(p.nutriments["fat_100g"] || 0, 1),
+                fibre: round(p.nutriments["fiber_100g"] || p.nutriments["fibre_100g"] || 0, 1),
+              },
+              category: "off", source: "off", useCount: 0,
+              refPortion: { grams: 100, label: "100g" },
+            }));
+          localStorage.setItem(cacheKey, JSON.stringify(items));
+          setOffResults(items);
+        } catch(e) { setOffResults([]); }
+        setOffLoading(false);
+      };
+
+      const pickOFF = (f) => {
+        const added = onAddNewFood(f);
+        setSelectedFood(added);
         setMode("portion");
       };
 
@@ -1433,7 +1476,7 @@
                       autoFocus
                       placeholder="Search foods…"
                       value={query}
-                      onChange={e => setQuery(e.target.value)}
+                      onChange={e => { setQuery(e.target.value); setOffResults(null); }}
                       style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px 14px 12px 38px", color:S.text, fontSize:15, outline:"none" }}
                     />
                     <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", color:S.dim, fontSize:14 }}>🔍</span>
@@ -1457,7 +1500,35 @@
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
-                  {results.length === 0 && (
+                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && query.trim().length >= 3 && (
+                    <div style={{ marginBottom:12 }}>
+                      {offResults === null && !offLoading && (
+                        <button onClick={searchOFF} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px", color:S.dim, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                          🌐 SEARCH INTERNET FOR "{query.trim().toUpperCase()}"
+                        </button>
+                      )}
+                      {offLoading && (
+                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Searching…</div>
+                      )}
+                      {offResults !== null && offResults.length === 0 && (
+                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>No internet results found. Try scan or manual entry.</div>
+                      )}
+                      {(offResults || []).map(f => (
+                        <button key={f.id} onClick={() => pickOFF(f)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                              {f.name}{f.brand ? <span style={{ color:S.dim, marginLeft:6, fontSize:11 }}>· {f.brand}</span> : ""}
+                            </div>
+                            <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                              per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                            </div>
+                          </div>
+                          <div style={{ fontSize:9, color:S.dim, whiteSpace:"nowrap" }}>🌐</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && query.trim().length < 3 && (
                     <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
                       No matches. Try a different term, scan, or add manually.
                     </div>
