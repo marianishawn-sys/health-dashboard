@@ -1347,6 +1347,15 @@
         return () => clearTimeout(t);
       }, [mode]);
 
+      // Auto-search internet when local results are empty (debounced 600ms)
+      useEffect(() => {
+        setOffResults(null);
+        setAiLookupLoading(false);
+        if (query.trim().length < 3) return;
+        const t = setTimeout(() => searchOFF(), 600);
+        return () => clearTimeout(t);
+      }, [query]);
+
       const results = useMemo(() => {
         const now = Date.now();
         return data.foods
@@ -1382,6 +1391,7 @@
       };
 
       const searchOFF = async () => {
+        if (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0) return;
         const q = query.trim();
         if (!q) return;
         setOffLoading(true);
@@ -1531,23 +1541,28 @@
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
-                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && query.trim().length >= 3 && (
+                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && (
                     <div style={{ marginBottom:12 }}>
-                      {offResults === null && !offLoading && !aiLookupLoading && (
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                          <button onClick={searchOFF} style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"11px 8px", color:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
-                            🌐 SEARCH INTERNET
-                          </button>
-                          <button onClick={lookupWithAI} style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"11px 8px", color:S.accent, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
-                            🤖 ASK AI
-                          </button>
+                      {query.trim().length < 3 && (
+                        <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
+                          No matches. Try a different term, scan, or add manually.
                         </div>
                       )}
-                      {(offLoading || aiLookupLoading) && (
-                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>{aiLookupLoading ? "Asking AI…" : "Searching…"}</div>
+                      {offLoading && (
+                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Searching internet…</div>
                       )}
-                      {offResults !== null && offResults.length === 0 && (
-                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>No internet results found. Try scan or manual entry.</div>
+                      {aiLookupLoading && (
+                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Asking AI…</div>
+                      )}
+                      {offResults !== null && offResults.length === 0 && !aiLookupLoading && (
+                        <div style={{ textAlign:"center", marginBottom:10, color:S.dim, fontSize:12, paddingTop:12 }}>
+                          No internet results — try asking the AI instead.
+                        </div>
+                      )}
+                      {offResults !== null && offResults.length === 0 && !aiLookupLoading && (
+                        <button onClick={lookupWithAI} style={{ width:"100%", background:`${S.accent}14`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"12px", color:S.accent, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                          🤖 ASK AI FOR "{query.trim()}"
+                        </button>
                       )}
                       {(offResults || []).map(f => (
                         <button key={f.id} onClick={() => pickOFF(f)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
@@ -1562,11 +1577,6 @@
                           <div style={{ fontSize:9, color:S.dim, whiteSpace:"nowrap" }}>🌐</div>
                         </button>
                       ))}
-                    </div>
-                  )}
-                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && query.trim().length < 3 && (
-                    <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
-                      No matches. Try a different term, scan, or add manually.
                     </div>
                   )}
                   {results.map(f => (
