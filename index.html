@@ -1339,6 +1339,7 @@
       const [prefillName, setPrefillName] = useState("");
       const [offResults, setOffResults] = useState(null); // null=idle, []=no results, [...]
       const [offLoading, setOffLoading] = useState(false);
+      const [aiLookupLoading, setAiLookupLoading] = useState(false);
       const searchRef = useRef(null);
 
       useEffect(() => {
@@ -1421,6 +1422,36 @@
         setMode("portion");
       };
 
+      const lookupWithAI = async () => {
+        if (!apiKey) { onMissingKey(); return; }
+        const q = query.trim();
+        if (!q) return;
+        setAiLookupLoading(true);
+        try {
+          const prompt = `Give me the nutritional values per 100g for "${q}". Return ONLY valid JSON, no other text:\n{"name":"string","per100g":{"cal":number,"protein":number,"carbs":number,"fat":number,"fibre":number}}`;
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true" },
+            body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:200, messages:[{role:"user",content:prompt}] }),
+          });
+          const data = await res.json();
+          const text = data.content[0].text;
+          const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
+          const food = {
+            id: uid("ai"),
+            name: parsed.name || q,
+            brand: "",
+            per100g: { cal:parsed.per100g.cal||0, protein:parsed.per100g.protein||0, carbs:parsed.per100g.carbs||0, fat:parsed.per100g.fat||0, fibre:parsed.per100g.fibre||0 },
+            refPortion: { grams:100, label:"100g" },
+            category:"ai", source:"ai_lookup", useCount:0,
+          };
+          const added = onAddNewFood(food);
+          setSelectedFood(added);
+          setMode("portion");
+        } catch(e) {}
+        setAiLookupLoading(false);
+      };
+
       const handleManualSave = (food) => {
         const added = onAddNewFood(food);
         setSelectedFood(added);
@@ -1476,7 +1507,7 @@
                       autoFocus
                       placeholder="Search foods…"
                       value={query}
-                      onChange={e => { setQuery(e.target.value); setOffResults(null); }}
+                      onChange={e => { setQuery(e.target.value); setOffResults(null); setAiLookupLoading(false); }}
                       style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px 14px 12px 38px", color:S.text, fontSize:15, outline:"none" }}
                     />
                     <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", color:S.dim, fontSize:14 }}>🔍</span>
@@ -1502,13 +1533,18 @@
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
                   {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && query.trim().length >= 3 && (
                     <div style={{ marginBottom:12 }}>
-                      {offResults === null && !offLoading && (
-                        <button onClick={searchOFF} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px", color:S.dim, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-                          🌐 SEARCH INTERNET FOR "{query.trim().toUpperCase()}"
-                        </button>
+                      {offResults === null && !offLoading && !aiLookupLoading && (
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                          <button onClick={searchOFF} style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"11px 8px", color:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
+                            🌐 SEARCH INTERNET
+                          </button>
+                          <button onClick={lookupWithAI} style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"11px 8px", color:S.accent, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
+                            🤖 ASK AI
+                          </button>
+                        </div>
                       )}
-                      {offLoading && (
-                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Searching…</div>
+                      {(offLoading || aiLookupLoading) && (
+                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>{aiLookupLoading ? "Asking AI…" : "Searching…"}</div>
                       )}
                       {offResults !== null && offResults.length === 0 && (
                         <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>No internet results found. Try scan or manual entry.</div>
