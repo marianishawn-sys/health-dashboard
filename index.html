@@ -187,32 +187,32 @@
     const SEED_INGREDIENTS = [
       // Freezer
       { id:"ing_strip_loin",       name:"Strip loin",          defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:271, protein:26,  carbs:0,   fat:18,   fibre:0 }, servingG:170 },
+        per100g:{ cal:271, protein:26,  carbs:0,   fat:18,   fibre:0 }, servingG:170, servingUnit:"steak"   },
       { id:"ing_chicken_thigh",    name:"Chicken thighs",      defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:209, protein:26,  carbs:0,   fat:11,   fibre:0 }, servingG:150 },
+        per100g:{ cal:209, protein:26,  carbs:0,   fat:11,   fibre:0 }, servingG:150, servingUnit:"thigh"   },
       { id:"ing_chicken_breast_f", name:"Chicken breasts",     defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:165, protein:31,  carbs:0,   fat:3.6,  fibre:0 }, servingG:150 },
+        per100g:{ cal:165, protein:31,  carbs:0,   fat:3.6,  fibre:0 }, servingG:150, servingUnit:"breast"  },
       { id:"ing_venison",          name:"Venison",             defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:158, protein:30,  carbs:0,   fat:3.2,  fibre:0 }, servingG:170 },
+        per100g:{ cal:158, protein:30,  carbs:0,   fat:3.2,  fibre:0 }, servingG:170, servingUnit:"portion" },
       { id:"ing_pickerel",         name:"Pickerel",            defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:93,  protein:20,  carbs:0,   fat:1.2,  fibre:0 }, servingG:150 },
+        per100g:{ cal:93,  protein:20,  carbs:0,   fat:1.2,  fibre:0 }, servingG:150, servingUnit:"fillet"  },
       { id:"ing_shrimp",           name:"Shrimp",              defaultUnit:"bags",     category:"freezer",
         per100g:{ cal:99,  protein:24,  carbs:0.2, fat:0.3,  fibre:0 }, servingG:85  },
       { id:"ing_bbq_sausage",      name:"BBQ sausage",         defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:301, protein:13,  carbs:1,   fat:27,   fibre:0 }, servingG:85  },
+        per100g:{ cal:301, protein:13,  carbs:1,   fat:27,   fibre:0 }, servingG:85,  servingUnit:"sausage" },
       { id:"ing_turkey_breast",    name:"Turkey breast",       defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:135, protein:30,  carbs:0,   fat:1,    fibre:0 }, servingG:150 },
+        per100g:{ cal:135, protein:30,  carbs:0,   fat:1,    fibre:0 }, servingG:150, servingUnit:"portion" },
       { id:"ing_round_roast",      name:"Round roast",         defaultUnit:"portions", category:"freezer",
-        per100g:{ cal:189, protein:28,  carbs:0,   fat:8,    fibre:0 }, servingG:170 },
+        per100g:{ cal:189, protein:28,  carbs:0,   fat:8,    fibre:0 }, servingG:170, servingUnit:"portion" },
       { id:"ing_beef_ribs",        name:"Beef back ribs",      defaultUnit:"racks",    category:"freezer",
-        per100g:{ cal:292, protein:17,  carbs:0,   fat:25,   fibre:0 }, servingG:280 },
+        per100g:{ cal:292, protein:17,  carbs:0,   fat:25,   fibre:0 }, servingG:280, servingUnit:"rack"    },
       { id:"ing_ground_bison",     name:"Ground bison",        defaultUnit:"g",        category:"freezer",
         per100g:{ cal:146, protein:24,  carbs:0,   fat:5,    fibre:0 }, servingG:113 },
       // Fridge
       { id:"ing_eggs",             name:"Free-run eggs",       defaultUnit:"eggs",      category:"fridge",
-        per100g:{ cal:143, protein:13,  carbs:1,   fat:10,   fibre:0 }, servingG:50  },
+        per100g:{ cal:143, protein:13,  carbs:1,   fat:10,   fibre:0 }, servingG:50,  servingUnit:"egg"    },
       { id:"ing_bacon",            name:"Bacon",               defaultUnit:"pkg",       category:"fridge",
-        per100g:{ cal:541, protein:37,  carbs:1.4, fat:42,   fibre:0 }, servingG:28  },
+        per100g:{ cal:541, protein:37,  carbs:1.4, fat:42,   fibre:0 }, servingG:14,  servingUnit:"strip"  },
       { id:"ing_greek_yogurt",     name:"Greek yogurt",        defaultUnit:"containers",category:"fridge",
         per100g:{ cal:97,  protein:9,   carbs:4,   fat:5,    fibre:0 }, servingG:170 },
       { id:"ing_cottage_cheese",   name:"Cottage cheese",      defaultUnit:"containers",category:"fridge",
@@ -228,7 +228,7 @@
       { id:"ing_beef_stock",       name:"Beef stock",          defaultUnit:"cartons",   category:"fridge",
         per100g:{ cal:8,   protein:1.3, carbs:0.6, fat:0,    fibre:0 }, servingG:240 },
       { id:"ing_sweet_potato",     name:"Sweet potatoes",      defaultUnit:"portions",  category:"fridge",
-        per100g:{ cal:86,  protein:1.6, carbs:20,  fat:0.1,  fibre:3 }, servingG:150 },
+        per100g:{ cal:86,  protein:1.6, carbs:20,  fat:0.1,  fibre:3 }, servingG:150, servingUnit:"potato" },
       // Pantry staples
       { id:"ing_evoo",             name:"Extra virgin olive oil",defaultUnit:"bottles", category:"pantry",
         per100g:{ cal:884, protein:0,   carbs:0,   fat:100,  fibre:0 }, servingG:14  },
@@ -455,20 +455,28 @@
       if (!data || !data.ingredients) return data;
       const macroMap = {};
       SEED_INGREDIENTS.forEach(si => {
-        if (si.per100g) macroMap[si.id] = { per100g: si.per100g, servingG: si.servingG };
+        if (si.per100g) macroMap[si.id] = { per100g: si.per100g, servingG: si.servingG, servingUnit: si.servingUnit };
       });
-      const needsUpdate = data.ingredients.some(i =>
-        (!i.per100g && macroMap[i.id]) ||
-        (!i.per100g && NAME_MACRO_BACKFILLS.some(nm => nm.match(i.name)))
-      );
+      const needsUpdate = data.ingredients.some(i => {
+        const seed = macroMap[i.id];
+        if (seed) return (!i.per100g) || (!i.servingUnit && seed.servingUnit);
+        return !i.per100g && NAME_MACRO_BACKFILLS.some(nm => nm.match(i.name));
+      });
       if (!needsUpdate) return data;
       return {
         ...data,
         ingredients: data.ingredients.map(i => {
-          if (i.per100g) return i;
-          if (macroMap[i.id]) return { ...i, ...macroMap[i.id] };
-          const nm = NAME_MACRO_BACKFILLS.find(nm => nm.match(i.name));
-          if (nm) return { ...i, per100g: nm.per100g, servingG: nm.servingG };
+          const seed = macroMap[i.id];
+          if (seed) {
+            const patch = {};
+            if (!i.per100g) { patch.per100g = seed.per100g; patch.servingG = seed.servingG; }
+            if (!i.servingUnit && seed.servingUnit) patch.servingUnit = seed.servingUnit;
+            return Object.keys(patch).length ? { ...i, ...patch } : i;
+          }
+          if (!i.per100g) {
+            const nm = NAME_MACRO_BACKFILLS.find(nm => nm.match(i.name));
+            if (nm) return { ...i, per100g: nm.per100g, servingG: nm.servingG };
+          }
           return i;
         }),
       };
@@ -907,7 +915,12 @@
           name: food.name,
           brand: food.brand || "",
           grams,
-          ...(preferredUnit ? { displayQty: gramsToUnit(grams, preferredUnit), displayUnit: preferredUnit } : {}),
+          ...(preferredUnit ? {
+            displayQty: ["g","oz","lb"].includes(preferredUnit)
+              ? gramsToUnit(grams, preferredUnit)
+              : round(grams / (food.servingG || grams), 1),
+            displayUnit: preferredUnit
+          } : {}),
           ...m,
           ...(notes ? { notes } : {}),
           ts: new Date().toISOString(),
@@ -1351,7 +1364,8 @@
           pantryFoods: matches
             .filter(ing => ing.per100g && ing.per100g.cal != null)
             .map(ing => ({ id: "ing_" + ing.id, name: ing.name, brand: "", per100g: ing.per100g,
-              refPortion: ing.servingG ? { grams: ing.servingG, label: "1 serving (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
+              servingG: ing.servingG, servingUnit: ing.servingUnit,
+              refPortion: ing.servingG ? { grams: ing.servingG, label: "1 " + (ing.servingUnit || "serving") + " (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
               category: "pantry", source: "pantry", useCount: 0 })),
           pantryStubs: matches
             .filter(ing => !ing.per100g || ing.per100g.cal == null)
@@ -1618,13 +1632,23 @@
 
     // ───────────────────── PORTION ADJUST ─────────────────────
     function PortionAdjust({ food, slot, onCancel, onLog }) {
-      const [unit, setUnit] = useState(food.preferredUnit || "g");
+      const isCountMode = !!food.servingUnit;
+      const [unit, setUnit]   = useState(food.preferredUnit || "g");
       const [grams, setGrams] = useState(food.refPortion?.grams || 100);
+      const [count, setCount] = useState(1);
       const [notes, setNotes] = useState("");
 
-      const displayQty = gramsToUnit(grams, unit);
-      const macros = scaleMacros(food.per100g, grams);
+      const pluralize = (word, n) => {
+        if (n === 1) return word;
+        if (word === "potato") return "potatoes";
+        return word + "s";
+      };
 
+      const actualGrams = isCountMode ? count * (food.servingG || 100) : grams;
+      const macros      = scaleMacros(food.per100g, actualGrams);
+      const displayQty  = isCountMode ? count : gramsToUnit(grams, unit);
+
+      // gram-mode presets
       const presets = [
         { label: food.refPortion?.label || "100g", grams: food.refPortion?.grams || 100 },
         { label: "100g", grams: 100 },
@@ -1655,29 +1679,51 @@
             </div>
           </div>
 
-          {/* Portion + unit */}
+          {/* Portion */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>PORTION</div>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>
+              {isCountMode ? "HOW MANY " + food.servingUnit.toUpperCase() + "S?" : "PORTION"}
+            </div>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-              <button onClick={() => setGrams(g => Math.max(1, g - 25))} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>−25g</button>
+              <button onClick={() => isCountMode ? setCount(c => Math.max(1, c - 1)) : setGrams(g => Math.max(1, g - 25))}
+                style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {isCountMode ? "−1" : "−25g"}
+              </button>
               <input
-                type="number"
-                inputMode="decimal"
+                type="number" inputMode="decimal"
                 value={displayQty}
-                onChange={e => handleQtyChange(e.target.value)}
+                onChange={e => isCountMode
+                  ? setCount(Math.max(1, parseInt(e.target.value) || 1))
+                  : handleQtyChange(e.target.value)}
                 style={{ flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
               />
-              <button onClick={() => setGrams(g => Math.max(1, g + 25))} style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>+25g</button>
+              <button onClick={() => isCountMode ? setCount(c => c + 1) : setGrams(g => g + 25)}
+                style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                {isCountMode ? "+1" : "+25g"}
+              </button>
             </div>
-            <UnitSelector unit={unit} onChange={setUnit} />
-            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
-              {presets.map(p => (
-                <button key={p.label} onClick={() => setGrams(p.grams)}
-                  style={{ flex:1, background: grams === p.grams ? `${S.accent}22` : S.panel2, border:`1px solid ${grams === p.grams ? S.accent : S.border}`, color: grams === p.grams ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>
-                  {unit === "g" ? p.label : gramsToUnit(p.grams, unit) + " " + unit}
-                </button>
-              ))}
-            </div>
+            {isCountMode ? (
+              <div style={{ display:"flex", gap:6 }}>
+                {[1,2,3,4].map(n => (
+                  <button key={n} onClick={() => setCount(n)}
+                    style={{ flex:1, background: count===n ? `${S.accent}22` : S.panel2, border:`1px solid ${count===n ? S.accent : S.border}`, color: count===n ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, cursor:"pointer" }}>
+                    {n} {pluralize(food.servingUnit, n)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <UnitSelector unit={unit} onChange={setUnit} />
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
+                  {presets.map(p => (
+                    <button key={p.label} onClick={() => setGrams(p.grams)}
+                      style={{ flex:1, background: grams === p.grams ? `${S.accent}22` : S.panel2, border:`1px solid ${grams === p.grams ? S.accent : S.border}`, color: grams === p.grams ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>
+                      {unit === "g" ? p.label : gramsToUnit(p.grams, unit) + " " + unit}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Macro preview */}
@@ -1705,9 +1751,9 @@
             rows={2}
             style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
           />
-          <button onClick={() => onLog(grams, notes.trim() || undefined, unit !== "g" ? unit : undefined)}
+          <button onClick={() => onLog(actualGrams, notes.trim() || undefined, isCountMode ? food.servingUnit : unit !== "g" ? unit : undefined)}
             style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-            LOG {displayQty} {unit}
+            LOG {displayQty} {isCountMode ? pluralize(food.servingUnit, count) : unit}
           </button>
         </div>
       );
