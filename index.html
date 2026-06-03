@@ -3433,6 +3433,9 @@ ${parseText}`;
       const [editFat, setEditFat]       = useState("");
       const [editFibre, setEditFibre]   = useState("");
       const [editServing, setEditServing] = useState("");
+      const [diaryDate, setDiaryDate]   = useState(isoToday());
+      const [diaryMeal, setDiaryMeal]   = useState("dinner");
+      const [diaryQty, setDiaryQty]     = useState("");
 
       const ingredients = data.ingredients || [];
       const pantry      = data.pantry      || [];
@@ -3503,7 +3506,50 @@ ${parseText}`;
         setEditFat(m.fat != null ? String(m.fat) : "");
         setEditFibre(m.fibre != null ? String(m.fibre) : "");
         setEditServing(ing.servingG != null ? String(ing.servingG) : "");
+        setDiaryDate(isoToday());
+        setDiaryMeal("dinner");
+        setDiaryQty(item.trackingType === "count" ? "1" : "1");
         setEditItemId(item.id);
+      };
+
+      // grams represented by one unit of this pantry item (for macro scaling)
+      const gramsPerUnit = (unit, servingG) => {
+        const u = (unit || "").toLowerCase();
+        if (u === "g" || u === "ml") return 1;
+        if (u === "kg" || u === "l") return 1000;
+        if (u === "oz") return 28.35;
+        if (u === "lb") return 453.6;
+        return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
+      };
+
+      const addToDiary = () => {
+        const item = pantry.find(p => p.id === editItemId);
+        if (!item) return;
+        const ing = getIng(item.itemId);
+        if (!ing.per100g || ing.per100g.cal == null) return;
+        const qty = parseFloat(diaryQty);
+        if (isNaN(qty) || qty <= 0) return;
+        const unit  = item.unit || ing.defaultUnit || "g";
+        const grams = qty * gramsPerUnit(unit, ing.servingG);
+        const m = scaleMacros(ing.per100g, grams);
+        const entry = {
+          id: uid("log"), foodId: ing.id, name: ing.name, brand: "",
+          grams: round(grams, 1), displayQty: qty, displayUnit: unit,
+          ...m, source: "pantry", ts: new Date().toISOString(),
+        };
+        const logs = data.logs || {};
+        const day  = logs[diaryDate] || {};
+        const meal = [...(day[diaryMeal] || []), entry];
+        // Decrement count-tracked stock by the logged amount
+        const newPantry = pantry.map(p => {
+          if (p.id !== editItemId) return p;
+          if (p.trackingType === "count" && p.quantity != null)
+            return { ...p, quantity: Math.max(0, round((p.quantity || 0) - qty, 1)) };
+          return p;
+        });
+        setData({ ...data, pantry: newPantry,
+          logs: { ...logs, [diaryDate]: { ...day, [diaryMeal]: meal } } });
+        setEditItemId(null);
       };
 
       const saveItemEdit = () => {
@@ -3777,6 +3823,35 @@ ${parseText}`;
                     style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 10px",color:S.text,fontSize:12,outline:"none" }} />
                   <span style={{ fontSize:9,color:S.dimmer,whiteSpace:"nowrap" }}>g per serving</span>
                 </div>
+                {(() => {
+                  const it = pantry.find(p => p.id === editItemId);
+                  const ig = it ? getIng(it.itemId) : null;
+                  const hasMacros = ig && ig.per100g && ig.per100g.cal != null;
+                  const unitLabel = (it && it.unit) || (ig && ig.defaultUnit) || "g";
+                  return (
+                    <div style={{ borderTop:"1px solid "+S.border, marginTop:4, paddingTop:14, marginBottom:14 }}>
+                      <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:8,fontWeight:600 }}>ADD TO DIARY</div>
+                      {!hasMacros ? (
+                        <div style={{ fontSize:11,color:S.dimmer,lineHeight:1.4 }}>Set macros per 100g above and tap SAVE CHANGES first to enable diary logging.</div>
+                      ) : (<>
+                        <input type="date" value={diaryDate} max={isoToday()} onChange={e=>e.target.value&&setDiaryDate(e.target.value)}
+                          style={{ width:"100%",background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box" }} />
+                        <div style={{ display:"flex",gap:5,marginBottom:8 }}>
+                          {["breakfast","lunch","dinner","snacks"].map(mk =>
+                            abtn(diaryMeal===mk, mk.slice(0,3).toUpperCase(), ()=>setDiaryMeal(mk)))}
+                        </div>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:10 }}>
+                          <input type="text" inputMode="decimal" placeholder="Qty" value={diaryQty} onChange={e=>setDiaryQty(e.target.value)}
+                            style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:13,outline:"none" }} />
+                          <span style={{ fontSize:11,color:S.dim,whiteSpace:"nowrap",minWidth:44,textAlign:"center" }}>{unitLabel}</span>
+                        </div>
+                        <button onClick={addToDiary} style={{ width:"100%",background:S.green,color:"#0a0c0f",border:"none",borderRadius:10,padding:"12px",fontSize:12,fontWeight:700,letterSpacing:1,cursor:"pointer" }}>
+                          ＋ ADD TO DIARY
+                        </button>
+                      </>)}
+                    </div>
+                  );
+                })()}
                 <button onClick={saveItemEdit} style={{ width:"100%",background:S.accent,color:"#0a0c0f",border:"none",borderRadius:10,padding:"13px",fontSize:12,fontWeight:700,letterSpacing:1,cursor:"pointer",marginBottom:10 }}>
                   SAVE CHANGES
                 </button>
