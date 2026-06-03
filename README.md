@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.5.0
+# Nutrition Concierge — v7.6.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,28 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.6.0 — MFP Recipe CSV Import (rebuilt)
+- **IMPORT MFP RECIPE CSV** rebuilt for the full ~90-recipe export. No Open Food Facts lookups for normal recipes — MFP already stores accurate per-serving macros on every row, so import is near-instant.
+- **Serving labels parsed from recipe names** — `(1 Cup Servings)`, `(8 Oz Servings)`, `(2tbsp Servings)`, `(per gram)`, `(1/12 of Pie)`, etc. are stripped from the display name and stored as `recipe.servingLabel`. Name encoding artifacts (`�`, nbsp, curly quotes) are cleaned.
+- **"1g=1serv" bulk recipes** (venison stew, taco meat, curries, etc.): MFP's per-serving macros round to ~0, so they are recomputed. Each non-trivial ingredient's per-100g macros are looked up via **one batched Claude call** (OFF is unreliable for whole foods like venison/shrimp), the batch total is summed by converting each ingredient quantity to grams, then divided by total grams. Serving is preserved as provided — **1 g = 1 serving** (`servings` = total grams) — with per-gram macros kept to 2–3 decimals so they are never 0. Requires an API key.
+- **Ingredient quantity → grams** converter (`toGrams`) handles g/kg/ml/L/cup/tbsp/tsp/oz/lb plus count units (egg, clove, avocado, onion, etc.).
+- Recipes that already exist (by cleaned name) are skipped. Removed the now-unused `fetchOFFSingle` helper.
+
+### v7.5.5 — Auto internet search; AI fallback
+- When local + pantry search is empty (3+ chars), Open Food Facts fires automatically (600 ms debounce). If it returns nothing, a **🤖 ASK AI** button appears for an exact lookup.
+
+### v7.5.4 — AI food lookup
+- 🤖 ASK AI button in the food picker — single Claude call returns per-100g macros for any food (fixes fresh-produce gaps in Open Food Facts).
+
+### v7.5.3 — Internet food search fallback
+- 🌐 internet search (Open Food Facts) when local results are empty.
+
+### v7.5.2 — Count-mode portion adjuster
+- Count-based pantry items (eggs, bacon strips, steaks, fillets, sausages, racks, potatoes) get a count stepper ("HOW MANY EGGS?", −1/+1, 1–4 presets); weight items keep grams. `servingUnit` added to seeds + backfilled.
+
+### v7.5.1 — Heart & Soil macros
+- Name-based backfill for Heart & Soil Whey Chocolate Sea Salt (per 100g: 372 cal / 58.1P / 30.2C / 2.3F / 2.3 fibre, 43 g serving).
 
 ### v7.5.0 — Pantry Macros Backfill
 - All 24 seed pantry ingredients now carry `per100g` macros and `servingG` (standard serving size) directly in `SEED_INGREDIENTS`.
