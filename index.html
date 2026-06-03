@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.7.1";
+    const VERSION = "v7.7.2";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1090,6 +1090,7 @@
               onLog={(food, grams, notes, preferredUnit) => { useFood(foodPickerSlot, food, grams, notes, preferredUnit); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
               onLogAll={(foods) => logMultipleScanned(foodPickerSlot, foods)}
+              onDeleteFood={(food) => saveData({ ...data, foods: (data.foods || []).filter(f => f.id !== food.id) })}
             />
           )}
 
@@ -1333,7 +1334,7 @@
     }
 
     // ───────────────────── FOOD PICKER ─────────────────────
-    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll }) {
+    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll, onDeleteFood }) {
       const [query, setQuery] = useState("");
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
@@ -1538,10 +1539,61 @@
                 </div>
 
                 <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
-                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {results.length}
+                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + results.length}
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
+                  {/* 1. Pantry items (highest priority) */}
+                  {pantryFoods.map(f => (
+                    <button key={f.id} onClick={() => pickFood(f)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                        </div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
+                    </button>
+                  ))}
+
+                  {/* 2. Previously logged foods (deletable) */}
+                  {results.map(f => (
+                    <div key={f.id} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                      <div onClick={() => pickFood(f)} style={{ flex:1, minWidth:0, background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {f.name}
+                            {f.brand && <span style={{ color:S.dim, marginLeft:6, fontSize:11 }}>· {f.brand}</span>}
+                          </div>
+                          <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                            per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                          </div>
+                        </div>
+                        {f.useCount > 0 && (
+                          <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
+                        )}
+                      </div>
+                      <button onClick={() => { if (onDeleteFood && window.confirm(`Remove "${f.name}" from search? This deletes it from your food library.`)) onDeleteFood(f); }}
+                        title="Remove from search"
+                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:"1px solid "+S.border, color:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>🗑</button>
+                    </div>
+                  ))}
+
+                  {/* 3. Pantry items without macros (prompt to add) */}
+                  {pantryStubs.map(ing => (
+                    <button key={ing.id} onClick={() => { setPrefillName(ing.name); setMode("manual"); }}
+                      style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}33`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {ing.name}
+                        </div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>Add macros to log this pantry item</div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
+                    </button>
+                  ))}
+
+                  {/* 4. Internet fallback (lowest priority — only when nothing local) */}
                   {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && (
                     <div style={{ marginBottom:12 }}>
                       {query.trim().length < 3 && (
@@ -1580,45 +1632,6 @@
                       ))}
                     </div>
                   )}
-                  {results.map(f => (
-                    <button key={f.id} onClick={() => pickFood(f)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          {f.name}
-                          {f.brand && <span style={{ color:S.dim, marginLeft:6, fontSize:11 }}>· {f.brand}</span>}
-                        </div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
-                          per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
-                        </div>
-                      </div>
-                      {f.useCount > 0 && (
-                        <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
-                      )}
-                    </button>
-                  ))}
-                  {pantryFoods.map(f => (
-                    <button key={f.id} onClick={() => pickFood(f)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
-                          per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
-                        </div>
-                      </div>
-                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
-                    </button>
-                  ))}
-                  {pantryStubs.map(ing => (
-                    <button key={ing.id} onClick={() => { setPrefillName(ing.name); setMode("manual"); }}
-                      style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}33`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          {ing.name}
-                        </div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>Add macros to log this pantry item</div>
-                      </div>
-                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
-                    </button>
-                  ))}
                 </div>
               </>
             )}
