@@ -45,6 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
+    const VERSION = "v7.7.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1028,7 +1029,7 @@
           {/* Header */}
           <div style={{ position:"sticky", top:0, zIndex:20, background:S.bg, padding:"14px 20px 8px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid "+S.border }}>
             <div>
-              <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>CONCIERGE</div>
+              <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>CONCIERGE <span style={{ color:S.dimmer, letterSpacing:0.5 }}>{VERSION}</span></div>
               <div style={{ fontSize:16, fontWeight:500, marginTop:2 }}>
                 {DOW[new Date().getDay()]} · {MONTH[new Date().getMonth()]} {new Date().getDate()}
                 <span style={{ marginLeft:10, fontSize:10, padding:"2px 8px", borderRadius:10, background: isHighCarb(new Date()) ? "rgba(122,174,242,0.15)" : "rgba(200,169,110,0.15)", color: isHighCarb(new Date()) ? S.blue : S.accent, letterSpacing:1 }}>
