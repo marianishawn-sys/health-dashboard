@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.6.1
+# Nutrition Concierge — v7.8.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,21 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.8.0 — Pantry "Add to Diary" with portion adjuster
+- Tap a pantry item → **ADD TO DIARY**: pick a date + meal, then **SET PORTION →** opens the same portion adjuster used for normal foods (count steppers for egg/portion items, grams for the rest, with a live WILL-LOG macro preview).
+- Confirming logs the food to the chosen day/meal **and** decrements pantry stock by the amount used (count-tracked items; stock decrement = logged grams ÷ grams-per-unit).
+- Requires the item to have per-100g macros set (the modal prompts if missing).
+
+### v7.7.2 — Food search reorder + delete
+- Search result priority: **pantry items (🫙) → previously logged foods → pantry stubs → internet/AI fallback** (fallback only fires when nothing local matches).
+- Each previously-logged result has a 🗑 button (with confirm) to remove it from `data.foods`, so duplicate entries stop appearing in future searches. Pantry rows stay managed in the Pantry tab.
+
+### v7.7.1 — Version number in header
+- `VERSION` constant shown next to CONCIERGE in the header, so a fresh build is instantly verifiable (cache vs code).
+
+### v7.7.0 — Add to Diary from pantry (initial)
+- First version of pantry → diary logging (inline quantity; superseded by the v7.8.0 portion adjuster).
 
 ### v7.6.1 — CSV import: no API key needed
 - The in-app import hit a 401 on the AI ingredient lookup. Replaced the live Claude call with a built-in per-100g nutrition table (`PER_GRAM_MACRO_TABLE`, keyword-matched) covering every ingredient in the 9 "1g=1serv" bulk recipes (venison, beef, chicken, shrimp, tuna, avocado, sauces, dairy, produce, oils, flour, etc.).
