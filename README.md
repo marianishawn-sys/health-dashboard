@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.6.0
+# Nutrition Concierge — v7.6.1
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.6.1 — CSV import: no API key needed
+- The in-app import hit a 401 on the AI ingredient lookup. Replaced the live Claude call with a built-in per-100g nutrition table (`PER_GRAM_MACRO_TABLE`, keyword-matched) covering every ingredient in the 9 "1g=1serv" bulk recipes (venison, beef, chicken, shrimp, tuna, avocado, sauces, dairy, produce, oils, flour, etc.).
+- Import now runs fully offline/local — no internet, no API key — and the app saves recipes via its normal idempotent Drive write. Updated the import card copy accordingly.
 
 ### v7.6.0 — MFP Recipe CSV Import (rebuilt)
 - **IMPORT MFP RECIPE CSV** rebuilt for the full ~90-recipe export. No Open Food Facts lookups for normal recipes — MFP already stores accurate per-serving macros on every row, so import is near-instant.

@@ -2369,6 +2369,51 @@
       return { qty, unit: MAP[u] || u || "portions" };
     };
 
+    // Per-100g macros for ingredients used in the "1g=1serv" bulk recipes.
+    // Keyword-matched (first matching entry wins) so messy MFP names resolve
+    // without an API call. {cal, protein, carbs, fat, fibre} per 100 g.
+    const PER_GRAM_MACRO_TABLE = [
+      // order matters — specific keywords before generic ones
+      [["venison"],                         { cal:130, protein:24,  carbs:0,   fat:3,   fibre:0   }],
+      [["lean ground beef","organic ground beef","ground beef","lean ground"], { cal:176, protein:20, carbs:0, fat:10, fibre:0 }],
+      [["chicken breast","chicken"],        { cal:120, protein:22.5,carbs:0,   fat:2.6, fibre:0   }],
+      [["shrimp"],                          { cal:99,  protein:24,  carbs:0.2, fat:0.3, fibre:0   }],
+      [["tuna"],                            { cal:116, protein:26,  carbs:0,   fat:0.8, fibre:0   }],
+      [["beef tallow","tallow"],            { cal:902, protein:0,   carbs:0,   fat:100, fibre:0   }],
+      [["ghee"],                            { cal:900, protein:0,   carbs:0,   fat:100, fibre:0   }],
+      [["extra virgin olive oil","olive oil","evoo"], { cal:884, protein:0, carbs:0, fat:100, fibre:0 }],
+      [["tikka masala sauce","tikka masala","tikka"], { cal:100, protein:1.5, carbs:8, fat:7, fibre:1 }],
+      [["green curry cooking sauce","green curry","curry sauce"], { cal:120, protein:1, carbs:7, fat:10, fibre:1 }],
+      [["greek yogurt","greek yoghurt","plain greek"], { cal:59, protein:10, carbs:3.6, fat:0.4, fibre:0 }],
+      [["cottage","fromage cottage"],       { cal:84,  protein:11,  carbs:4.3, fat:2.3, fibre:0   }],
+      [["sour cream"],                      { cal:198, protein:2.4, carbs:4.6, fat:19,  fibre:0   }],
+      [["mayonnaise","mayo"],               { cal:680, protein:1,   carbs:0.6, fat:75,  fibre:0   }],
+      [["tomato paste"],                    { cal:82,  protein:4.3, carbs:19,  fat:0.5, fibre:4.1 }],
+      [["san marzano","canned tomato","whole tomato"], { cal:24, protein:1.2, carbs:5, fat:0.2, fibre:1.5 }],
+      [["red wine","wine"],                 { cal:85,  protein:0.1, carbs:2.6, fat:0,   fibre:0   }],
+      [["tipo 00","all-purpose flour","all purpose flour","flour"], { cal:364, protein:10, carbs:76, fat:1, fibre:2.7 }],
+      [["sourdough starter","starter"],     { cal:150, protein:4,   carbs:31,  fat:0.5, fibre:1   }],
+      [["green onion","green onions","scallion"], { cal:32, protein:1.8, carbs:7.3, fat:0.2, fibre:2.6 }],
+      [["red bell pepper","bell pepper","sweet, red","red pepper"], { cal:31, protein:1, carbs:6, fat:0.3, fibre:2.1 }],
+      [["poblano"],                         { cal:20,  protein:0.9, carbs:4.6, fat:0.2, fibre:1.7 }],
+      [["cremini","mushroom"],              { cal:22,  protein:2.5, carbs:4,   fat:0.1, fibre:0.6 }],
+      [["broccoli"],                        { cal:34,  protein:2.8, carbs:7,   fat:0.4, fibre:2.6 }],
+      [["avocado"],                         { cal:160, protein:2,   carbs:9,   fat:15,  fibre:7   }],
+      [["thai-style","vegetable blend","mixed veg"], { cal:45, protein:2, carbs:9, fat:0.3, fibre:3 }],
+      [["carrot"],                          { cal:41,  protein:0.9, carbs:10,  fat:0.2, fibre:2.8 }],
+      [["celery"],                          { cal:16,  protein:0.7, carbs:3,   fat:0.2, fibre:1.6 }],
+      [["garlic"],                          { cal:149, protein:6.4, carbs:33,  fat:0.5, fibre:2.1 }],
+      [["onion"],                           { cal:40,  protein:1.1, carbs:9.3, fat:0.1, fibre:1.7 }],
+      [["dill"],                            { cal:43,  protein:3.5, carbs:7,   fat:1.1, fibre:2   }],
+      [["mustard"],                         { cal:67,  protein:4,   carbs:6,   fat:4,   fibre:3   }],
+    ];
+    const matchPerGramMacro = (rawName) => {
+      const n = (rawName || "").toLowerCase();
+      for (const [keys, macro] of PER_GRAM_MACRO_TABLE)
+        if (keys.some(k => n.includes(k))) return macro;
+      return null;
+    };
+
     // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
     function RecipeEditor({ recipe, ingredients, onSave, onCancel }) {
       const [name, setName]             = useState(recipe.name || "");
@@ -2625,9 +2670,10 @@
         const pgRecipes     = Object.values(recipeMap).filter(isPerGram);
         const normalRecipes = Object.values(recipeMap).filter(r => !isPerGram(r));
 
-        // ── Ingredient macro lookup ONLY for per-gram recipes ─────────────
-        // These are whole-food dishes (meat, veg) where OFF coverage is poor,
-        // so we ask Claude for accurate per-100g macros in one batched call.
+        // ── Per-gram recipes: compute batch macros from a built-in table ──
+        // Whole-food dishes (meat/veg) where MFP per-serving rounds to ~0.
+        // TRIVIAL ingredients (salt, water, spices, leaveners) contribute ~0
+        // and are skipped.
         const TRIVIAL = new Set([
           "salt","sea salt","kosher salt","fine sea salt","table salt","seasalt",
           "water","water - municipal","water, tap",
@@ -2641,54 +2687,8 @@
           "sweetener","stevia sweetener","100% natural erythritol",
           "corn starch","cornstarch",
         ]);
-        const macroCache = {};   // ingName.lower → per100g object | null
-
-        if (pgRecipes.length > 0) {
-          const pgIngNames = [...new Set(pgRecipes.flatMap(r => r.ingredients.map(i => i.name)))]
-            .filter(n => !TRIVIAL.has(n.toLowerCase()));
-          if (pgIngNames.length > 0) {
-            if (!apiKey) {
-              setImportMsg("Bulk (1g=1serv) recipes need accurate ingredient macros — add your API key in settings, then re-import.");
-              if (onMissingKey) onMissingKey();
-              return;
-            }
-            setImportMsg(`Looking up ${pgIngNames.length} ingredient macros via AI…`);
-            const wanted = pgIngNames.map(n => n.toLowerCase());
-            try {
-              const prompt = "For each food below, give its nutrition per 100 grams (as typically purchased/raw unless the name says cooked). " +
-                "Return ONLY a JSON array, no prose, in the SAME ORDER, one element per food, shaped exactly: " +
-                '{"name":string,"cal":number,"protein":number,"carbs":number,"fat":number,"fibre":number}. Foods:\n' +
-                pgIngNames.map((n, i) => `${i+1}. ${n}`).join("\n");
-              const res = await fetch("https://api.anthropic.com/v1/messages", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "x-api-key": apiKey,
-                  "anthropic-version": "2023-06-01",
-                  "anthropic-dangerous-direct-browser-access": "true",
-                },
-                body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4096,
-                  messages: [{ role: "user", content: prompt }] }),
-              });
-              if (!res.ok) throw new Error("API " + res.status);
-              const d = await res.json();
-              const txt = d.content[0].text;
-              const arr = JSON.parse(txt.match(/\[[\s\S]*\]/)[0]);
-              arr.forEach((o, i) => {
-                if (!o) return;
-                const m = { cal:+o.cal||0, protein:+o.protein||0, carbs:+o.carbs||0, fat:+o.fat||0, fibre:+o.fibre||0 };
-                const byName = o.name && wanted.includes(String(o.name).toLowerCase())
-                  ? String(o.name).toLowerCase() : null;
-                const key = byName || wanted[i];
-                if (key) macroCache[key] = m;
-              });
-            } catch (e) {
-              setImportMsg("AI macro lookup failed (" + (e.message || e) + "). Try again.");
-              return;
-            }
-          }
-        }
-
+        // Per-gram ingredient macros come from the built-in PER_GRAM_MACRO_TABLE
+        // (keyword-matched). No API call — works offline and repeatably.
         const computeFromIngs = (rec) => {
           const total = { cal:0, protein:0, carbs:0, fat:0, fibre:0 };
           for (const ing of rec.ingredients) {
@@ -2696,7 +2696,7 @@
             if (TRIVIAL.has(key)) continue;
             const g = toGrams(ing.quantityStr);
             if (!g || g <= 0) continue;
-            const m = macroCache[key];
+            const m = matchPerGramMacro(ing.name);
             if (!m || m.cal === 0) continue;
             total.cal     += m.cal     * g / 100;
             total.protein += m.protein * g / 100;
@@ -2895,8 +2895,9 @@ ${parseText}`;
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:10 }}>
             <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>IMPORT MFP RECIPE CSV</div>
             <div style={{ fontSize:12, color:S.dim, marginBottom:8, lineHeight:1.4 }}>
-              Upload your MFP recipe export CSV. Macros are taken directly from MFP;
-              ingredient library entries are fetched from Open Food Facts.
+              Upload your MFP recipe export CSV. Per-serving macros come straight from MFP.
+              Bulk "1g=1serv" recipes are recomputed from a built-in nutrition table — no
+              internet or API key needed.
             </div>
             <input ref={csvFileRef} type="file" accept=".csv" style={{ display:"none" }}
               onChange={e => importCSV(e.target.files?.[0])} />
