@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.9.0
+# Nutrition Concierge — v7.10.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,15 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.10.0 — API key syncs across devices
+- The Anthropic API key now syncs through the Drive data file instead of being per-device localStorage only. Enter it once on any device → others adopt it on next load.
+- `saveApiKey()` writes the key into `data.apiKey` (→ Drive); `loadData()` adopts `data.apiKey` from Drive, or bootstraps by pushing this device's localStorage key up if Drive has none yet.
+- **Security tradeoff (intentional):** the key now lives in `dashboard-data.json` on Google Drive in plaintext — same trust boundary as the rest of the synced data. Scan/AI requests still send the key only to the Anthropic endpoint. (This relaxes the earlier "key never leaves the device" rule by explicit user choice.)
+- A version string (`VERSION`) shows next to CONCIERGE in the header for fresh-build verification.
+
+### v7.9.1–v7.9.2 — Clearer AI error messages
+- Meal scan maps API failures to actionable text: 401 → re-paste key in Settings; 400+credit → low balance; 429 → rate limited; 404 → model unavailable; and "Failed to fetch" → network/extension/VPN block (not an auth error), with troubleshooting hints.
 
 ### v7.9.0 — Add scanned/library foods to the pantry
 - **From a meal scan** (Diary → + ADD FOOD → 📷 SCAN MEAL → review): select items and tap **📦 ADD N TO PANTRY**. Shows "Added N to pantry ✓" / "Already in pantry".
@@ -261,4 +270,4 @@ On phone: hard-refresh the PWA (Ctrl+Shift+R desktop; clear site data on mobile 
 
 ## Cost notes
 
-API calls use `ant_api_key` in localStorage. Meal scan ~1¢, pantry scan ~1¢, recipe parse ~0.5¢, MFP import 5–15¢ one-time. Drive sync, food library, Open Food Facts, and coach ingest are free.
+API calls use the Anthropic key stored in `ant_api_key` (localStorage) and synced via `data.apiKey` in the Drive data file (v7.10.0). Meal scan ~1¢, pantry scan ~1¢, recipe parse ~0.5¢, MFP import 5–15¢ one-time. Drive sync, food library, Open Food Facts, and coach ingest are free.
