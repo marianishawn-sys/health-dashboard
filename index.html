@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.9.0";
+    const VERSION = "v7.9.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -2191,7 +2191,13 @@
           });
           if (!res.ok) {
             const errText = await res.text();
-            throw new Error("API error " + res.status + ": " + errText.slice(0,200));
+            let msg;
+            if (res.status === 401) msg = "API key rejected (401). Open Settings (⋯ top-right) and re-paste your Anthropic API key.";
+            else if (res.status === 400 && /credit/i.test(errText)) msg = "Anthropic credit balance is too low. Add credits at console.anthropic.com.";
+            else if (res.status === 429) msg = "Rate limited (429). Wait a few seconds and try again.";
+            else if (res.status === 404) msg = "Model unavailable: " + CLAUDE_MODEL + " (404). It may have been retired — let Shawn know.";
+            else msg = "API error " + res.status + ": " + errText.slice(0,160);
+            throw new Error(msg);
           }
           const data = await res.json();
           const text = data.content[0].text;
