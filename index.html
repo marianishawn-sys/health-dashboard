@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.9.2";
+    const VERSION = "v7.10.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -834,10 +834,22 @@
           const { data: afterCoach, changed: coachChanged } =
             await ingestCoachFiles(folderId, migratedIngs);
 
+          // API key cross-device sync: adopt the key from Drive, or push this
+          // device's key up if Drive doesn't have one yet.
+          const localKey = localStorage.getItem("ant_api_key") || "";
+          let keyChanged = false;
+          if (afterCoach.apiKey && afterCoach.apiKey !== localKey) {
+            localStorage.setItem("ant_api_key", afterCoach.apiKey);
+            setApiKey(afterCoach.apiKey);
+          } else if (!afterCoach.apiKey && localKey) {
+            afterCoach.apiKey = localKey;
+            keyChanged = true;
+          }
+
           setData(afterCoach);
 
           const needsSave = !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
-            || migrated !== v4 || migratedIngs !== migrated || coachChanged;
+            || migrated !== v4 || migratedIngs !== migrated || coachChanged || keyChanged;
           if (needsSave) {
             await writeDriveFile(fileId, afterCoach);
           }
@@ -874,6 +886,8 @@
           localStorage.removeItem("ant_api_key");
           setApiKey("");
         }
+        // Sync the key across devices via the Drive data file (per user request).
+        saveData({ ...data, apiKey: trimmed });
       };
 
       // ─── Date helpers ───
