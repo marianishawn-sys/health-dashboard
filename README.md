@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.8.0
+# Nutrition Concierge — v7.9.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,12 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.9.0 — Add scanned/library foods to the pantry
+- **From a meal scan** (Diary → + ADD FOOD → 📷 SCAN MEAL → review): select items and tap **📦 ADD N TO PANTRY**. Shows "Added N to pantry ✓" / "Already in pantry".
+- **From the food search list**: each previously-logged result has a 📦 button (turns ✓ once added) beside the 🗑 delete.
+- `addFoodToPantry(foods)` creates/links an ingredient (with the food's `per100g` macros + serving size) and a count-tracked pantry entry (qty 1), skipping items already present. Threaded App → FoodPicker → MealScan.
+- Note: editing a pantry item's macros already exists (item edit modal → MACROS PER 100g → SAVE CHANGES) and was left unchanged.
 
 ### v7.8.0 — Pantry "Add to Diary" with portion adjuster
 - Tap a pantry item → **ADD TO DIARY**: pick a date + meal, then **SET PORTION →** opens the same portion adjuster used for normal foods (count steppers for egg/portion items, grams for the rest, with a live WILL-LOG macro preview).
