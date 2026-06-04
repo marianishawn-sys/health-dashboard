@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.9.1";
+    const VERSION = "v7.9.2";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -2214,7 +2214,10 @@
           setPhase("review");
         } catch (err) {
           console.error("Scan failed", err);
-          setError(err.message || "Scan failed");
+          let msg = err.message || "Scan failed";
+          if (/failed to fetch|networkerror|load failed|fetch event/i.test(msg))
+            msg = "Couldn't reach the AI service (\"Failed to fetch\" = blocked before sending). Likely a browser extension, ad/privacy blocker, VPN, or network filter intercepting api.anthropic.com. Try an Incognito window, or disable extensions / VPN for this site, then scan again.";
+          setError(msg);
           setPhase("error");
         }
       };
