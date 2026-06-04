@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.8.0";
+    const VERSION = "v7.9.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -948,6 +948,36 @@
         return newFood;
       };
 
+      // Add one or more foods (from scan or library) to the pantry inventory.
+      // Creates/links an ingredient (with macros + serving size) and a count-tracked
+      // pantry entry (qty 1). Returns how many new pantry entries were created.
+      const addFoodToPantry = (foods) => {
+        let newIngs   = [...(data.ingredients || [])];
+        let newPantry = [...(data.pantry || [])];
+        let added = 0;
+        (Array.isArray(foods) ? foods : [foods]).forEach(food => {
+          if (!food || !food.name) return;
+          const nameKey = food.name.trim().toLowerCase();
+          let ing = newIngs.find(i => i.name.trim().toLowerCase() === nameKey);
+          if (!ing) {
+            const servingG = Math.round((food.refPortion && food.refPortion.grams) || food.estimatedGrams || 100);
+            ing = { id: uid("ing"), name: food.name.trim(), defaultUnit: "portions",
+              category: "fridge", per100g: food.per100g, servingG };
+            newIngs.push(ing);
+          } else if (!ing.per100g && food.per100g) {
+            newIngs = newIngs.map(i => i.id === ing.id ? { ...i, per100g: food.per100g } : i);
+          }
+          if (!newPantry.some(p => p.itemId === ing.id)) {
+            newPantry.push({ id: uid("pan"), itemId: ing.id, trackingType: "count",
+              quantity: 1, unit: ing.defaultUnit || "portions", state: null,
+              parLevel: null, expiry: null, expiryNA: false });
+            added++;
+          }
+        });
+        saveData({ ...data, ingredients: newIngs, pantry: newPantry });
+        return added;
+      };
+
       const logMultipleScanned = (slot, scannedFoods) => {
         const now = new Date().toISOString();
         let foodsList = [...(data.foods || [])];
@@ -1091,6 +1121,7 @@
               onAddNewFood={(food) => addFoodToLibrary(food)}
               onLogAll={(foods) => logMultipleScanned(foodPickerSlot, foods)}
               onDeleteFood={(food) => saveData({ ...data, foods: (data.foods || []).filter(f => f.id !== food.id) })}
+              onAddToPantry={(foods) => addFoodToPantry(foods)}
             />
           )}
 
@@ -1334,7 +1365,8 @@
     }
 
     // ───────────────────── FOOD PICKER ─────────────────────
-    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll, onDeleteFood }) {
+    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll, onDeleteFood, onAddToPantry }) {
+      const [pantryAdded, setPantryAdded] = useState(() => new Set());
       const [query, setQuery] = useState("");
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
@@ -1506,6 +1538,7 @@
                 onCancel={() => setMode("search")}
                 onResult={handleScanResult}
                 onLogAll={onLogAll}
+                onAddToPantry={onAddToPantry}
               />
             )}
 
@@ -1573,6 +1606,11 @@
                           <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
                         )}
                       </div>
+                      <button onClick={() => { if (onAddToPantry && !pantryAdded.has(f.id)) { onAddToPantry([f]); setPantryAdded(prev => new Set(prev).add(f.id)); } }}
+                        title="Add to pantry"
+                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:`1px solid ${pantryAdded.has(f.id)?S.green:S.border}`, color: pantryAdded.has(f.id)?S.green:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>
+                        {pantryAdded.has(f.id) ? "✓" : "📦"}
+                      </button>
                       <button onClick={() => { if (onDeleteFood && window.confirm(`Remove "${f.name}" from search? This deletes it from your food library.`)) onDeleteFood(f); }}
                         title="Remove from search"
                         style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:"1px solid "+S.border, color:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>🗑</button>
@@ -2100,12 +2138,13 @@
     }
 
     // ───────────────────── MEAL SCAN ─────────────────────
-    function MealScan({ apiKey, onMissingKey, onCancel, onResult, onLogAll }) {
+    function MealScan({ apiKey, onMissingKey, onCancel, onResult, onLogAll, onAddToPantry }) {
       const [phase, setPhase] = useState("capture"); // capture | analyzing | review | error
       const [image, setImage] = useState(null);
       const [results, setResults] = useState([]);
       const [error, setError] = useState("");
       const [refreshingId, setRefreshingId] = useState(null);
+      const [pantryMsg, setPantryMsg] = useState("");
       const cameraRef = useRef(null);
       const fileRef = useRef(null);
 
@@ -2328,6 +2367,19 @@
                   {multi ? `LOG ${selectedCount} ITEMS AT SCANNED GRAMS` : "USE → ADJUST PORTION"}
                 </button>
                 {multi && <div style={{ fontSize:10, color:S.dim, textAlign:"center", marginTop:8, lineHeight:1.5 }}>All selected items logged directly — edit portions from the tracker.</div>}
+                {onAddToPantry && (
+                  <button onClick={() => {
+                      const sel = results.filter(r => r.selected).map(r => ({ name: r.name, brand: r.brand || "", per100g: r.per100g, estimatedGrams: r.estimatedGrams }));
+                      if (sel.length === 0) return;
+                      const n = onAddToPantry(sel);
+                      setPantryMsg(n > 0 ? `Added ${n} to pantry ✓` : "Already in pantry");
+                    }}
+                    disabled={selectedCount === 0}
+                    style={{ width:"100%", background:"none", border:`1px solid ${selectedCount>0?S.green:S.border}`, color: selectedCount>0?S.green:S.dim, borderRadius:12, padding:"11px", fontSize:11, fontWeight:700, letterSpacing:1, cursor: selectedCount>0?"pointer":"not-allowed", marginTop:8 }}>
+                    📦 ADD {selectedCount > 0 ? selectedCount : ""} TO PANTRY
+                  </button>
+                )}
+                {pantryMsg && <div style={{ fontSize:10, color:S.green, textAlign:"center", marginTop:6 }}>{pantryMsg}</div>}
               </div>
             );
           })()}
