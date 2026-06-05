@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.10.0";
+    const VERSION = "v7.10.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -860,12 +860,12 @@
       };
 
       // ─── Debounced save ───
-      const saveData = useCallback((newData) => {
+      const saveData = useCallback((newData, immediate=false) => {
         const next = { ...newData, lastModified: new Date().toISOString() };
         setData(next);
         setSyncStatus("saving");
         if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(async () => {
+        const doWrite = async () => {
           try {
             await writeDriveFile(fileId, next);
             setSyncStatus("saved");
@@ -874,7 +874,10 @@
             setSyncStatus("error");
             console.error("Save failed", e);
           }
-        }, 1200);
+        };
+        // immediate=true → write now (no debounce window) for discrete adds
+        if (immediate) doWrite();
+        else saveTimer.current = setTimeout(doWrite, 1200);
       }, []);
 
       const saveApiKey = (k) => {
@@ -3503,6 +3506,7 @@ ${parseText}`;
       const [expandedId, setExpandedId] = useState(null);
       const [editQtyId, setEditQtyId]   = useState(null);
       const [showAdd, setShowAdd]       = useState(false);
+      const [addMsg, setAddMsg]         = useState("");
       const [addName, setAddName]       = useState("");
       const [addCat, setAddCat]         = useState("fridge");
       const [addTracking, setAddTracking] = useState("count");
@@ -3717,8 +3721,10 @@ ${parseText}`;
           else newPantry.push({ id:uid("pan"), itemId, trackingType:qty!=null?"count":"state",
             quantity:qty, unit, state:qty!=null?null:"have", parLevel:par, expiry:raw.expiry||null, expiryNA:!raw.expiry });
         });
-        setData({ ...data, ingredients:newIngs, pantry:newPantry });
+        setData({ ...data, ingredients:newIngs, pantry:newPantry }, true);  // save now
         setScanMode(null);
+        const names = rawItems.map(r => r.name).filter(Boolean);
+        setAddMsg(`Added ${names.length===1 ? names[0] : names.length+" items"} ✓ — scroll to find it in its category`);
       };
 
       const handleManualAdd = () => {
@@ -3732,8 +3738,10 @@ ${parseText}`;
           unit:addUnit, state:addTracking==="state"?"have":null,
           parLevel:!isNaN(par)?par:null, expiry:null,
           expiryNA:addCat==="freezer"||addCat==="pantry" };
-        setData({ ...data, ingredients:[...ingredients,newIng], pantry:[...pantry,newItem] });
+        const nm = addName.trim();
+        setData({ ...data, ingredients:[...ingredients,newIng], pantry:[...pantry,newItem] }, true);  // save now
         setAddName(""); setAddQty(""); setAddPar(""); setAddUnit("portions"); setShowAdd(false);
+        setAddMsg(`Added ${nm} ✓ — scroll to find it in ${addCat.toUpperCase()}`);
       };
 
       const displayPantry = useMemo(() => {
@@ -3753,12 +3761,23 @@ ${parseText}`;
         <button onClick={onClick} style={{ flex:1, padding:"8px 4px", borderRadius:7, border:`1px solid ${active?S.accent:S.border}`, background:active?`${S.accent}22`:S.panel2, color:active?S.accent:S.dim, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>{lbl}</button>
       );
 
+      useEffect(() => {
+        if (!addMsg) return;
+        const t = setTimeout(() => setAddMsg(""), 6000);
+        return () => clearTimeout(t);
+      }, [addMsg]);
+
       if (scanMode) return <PantryScan mode={scanMode} apiKey={apiKey} onClose={() => setScanMode(null)} onResult={handleScanResult} />;
 
       return (
         <div>
           {/* Sticky controls */}
           <div style={{ position:"sticky", top:"60px", zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
+          {addMsg && (
+            <div onClick={()=>setAddMsg("")} style={{ background:`${S.green}1a`, border:`1px solid ${S.green}55`, color:S.green, borderRadius:8, padding:"8px 10px", marginBottom:8, fontSize:11, fontWeight:600, cursor:"pointer", textAlign:"center" }}>
+              {addMsg}
+            </div>
+          )}
           {/* Action buttons */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:8 }}>
             {[["📷","SCAN","single"],["📦","BULK","bulk"],["＋","ADD",null]].map(([icon,lbl,mode]) => (
