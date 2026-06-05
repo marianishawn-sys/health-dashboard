@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.10.1";
+    const VERSION = "v7.10.2";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -615,9 +615,8 @@
               if (!r.name) return;
               if (newRecipes.find(e => e.name.toLowerCase() === r.name.toLowerCase())) return; // skip dupe
               const recipeRows = (r.ingredients || []).map(ri => {
-                const nl = (ri.itemName || ri.name || "").toLowerCase();
-                let ing = newIngs.find(i => i.name.toLowerCase() === nl) ||
-                          newIngs.find(i => nl.includes(i.name.toLowerCase().split(" ")[0]));
+                const nl = (ri.itemName || ri.name || "").toLowerCase().trim();
+                let ing = newIngs.find(i => (i.name||"").toLowerCase().trim() === nl);  // exact only (avoid first-word collisions)
                 let itemId;
                 if (ing) { itemId = ing.id; }
                 else {
@@ -2932,11 +2931,8 @@ ${parseText}`;
             let itemId = ing.itemId;
             if (!itemId || !ingredients.find(i => i.id === itemId)) {
               // Fuzzy match existing
-              const nl = (ing.name || "").toLowerCase();
-              const found = newIngs.find(i =>
-                i.name.toLowerCase() === nl ||
-                nl.includes(i.name.toLowerCase().split(" ")[0])
-              );
+              const nl = (ing.name || "").toLowerCase().trim();
+              const found = newIngs.find(i => (i.name||"").toLowerCase().trim() === nl);  // exact only
               if (found) { itemId = found.id; }
               else {
                 itemId = uid("ing");
@@ -3702,9 +3698,12 @@ ${parseText}`;
         const newIngs = [...ingredients];
         const newPantry = [...pantry];
         rawItems.forEach(raw => {
-          const nl = (raw.name||"").toLowerCase();
-          let ing = newIngs.find(i => i.name.toLowerCase()===nl) ||
-                    newIngs.find(i => nl.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(nl.split(" ")[0]));
+          const nl = (raw.name||"").toLowerCase().trim();
+          // Exact (case-insensitive) match only. The old fuzzy match collided on
+          // shared first words (e.g. "Organic Medjool Dates" → "Organic chicken
+          // drumsticks"), silently merging into the wrong item. A harmless dup is
+          // far better than corrupting an unrelated pantry entry.
+          let ing = newIngs.find(i => (i.name||"").toLowerCase().trim()===nl);
           let itemId;
           if (!ing) {
             itemId = uid("ing");
