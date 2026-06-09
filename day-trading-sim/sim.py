@@ -123,13 +123,22 @@ class MomentumBot:
     NO_ENTRY_AFTER = MINUTES_PER_DAY - 30   # don't open trades near close
     WARMUP = 30
 
-    def __init__(self, equity=100_000.0, coin_flip_rng=None):
+    def __init__(self, equity=100_000.0, coin_flip_rng=None,
+                 entry_z=None, stop_mult=None, cost_per_side=None):
         """If coin_flip_rng is given, entry *direction* is randomized
         (identical entry timing, sizing, and exits) — the baseline that
-        isolates whether the momentum signal itself adds value."""
+        isolates whether the momentum signal itself adds value.
+
+        entry_z / stop_mult / cost_per_side override the class defaults;
+        used by the walk-forward optimizer and cost stress tests."""
         self.equity = equity
         self.trades = []          # per-trade pnl
         self.coin_flip_rng = coin_flip_rng
+        if entry_z is not None:
+            self.ENTRY_Z = entry_z
+        if stop_mult is not None:
+            self.STOP_VOL_MULT = stop_mult
+        self.cost = COST_PER_SIDE if cost_per_side is None else cost_per_side
 
     def trade_day(self, prices):
         """Trade one day of minute closes. Returns day P&L."""
@@ -153,7 +162,7 @@ class MomentumBot:
                 signal_gone = (pos > 0 and signal < 0) or (pos < 0 and signal > 0)
                 eod = t >= MINUTES_PER_DAY - 5
                 if stop_hit or signal_gone or eod:
-                    fill = px * (1 - np.sign(pos) * COST_PER_SIDE)
+                    fill = px * (1 - np.sign(pos) * self.cost)
                     pnl = pos * (fill - entry_px)
                     self.equity += pnl
                     self.trades.append(pnl)
@@ -174,7 +183,7 @@ class MomentumBot:
                 shares = (self.equity * self.RISK_PER_TRADE) / stop_dist
                 shares = min(shares, self.equity * self.MAX_LEVERAGE / px)
                 pos = direction * shares
-                entry_px = px * (1 + direction * COST_PER_SIDE)
+                entry_px = px * (1 + direction * self.cost)
                 stop_px = px - direction * stop_dist
                 day_events.append((t, 'buy' if direction > 0 else 'sell', px))
 
