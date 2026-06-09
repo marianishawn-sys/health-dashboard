@@ -43,13 +43,14 @@ class Market:
         return 0.75 + 1.1 * np.exp(-12 * x) + 0.9 * np.exp(-12 * (1 - x))
 
     def generate_day(self):
-        """Return (prices, regimes) arrays of length MINUTES_PER_DAY."""
+        """Return (prices, regimes, vol_states) arrays of length MINUTES_PER_DAY."""
         rng = self.rng
         # overnight gap
         self.price *= 1 + rng.normal(0, 0.004)
 
         prices = np.empty(MINUTES_PER_DAY)
         regimes = np.empty(MINUTES_PER_DAY, dtype=int)
+        vol_states = np.empty(MINUTES_PER_DAY)
         regime = 0
         for t in range(MINUTES_PER_DAY):
             if rng.random() < 1.0 / self.AVG_REGIME_LEN[regime]:
@@ -72,7 +73,8 @@ class Market:
             self.price *= 1 + ret
             prices[t] = self.price
             regimes[t] = regime
-        return prices, regimes
+            vol_states[t] = self.vol_state
+        return prices, regimes, vol_states
 
 
 # ---------------------------------------------------------------- costs
@@ -82,6 +84,30 @@ COMMISSION_BP = 0.2    # per side
 SLIPPAGE_BP = 0.3      # per side
 
 COST_PER_SIDE = (SPREAD_BP / 2 + COMMISSION_BP + SLIPPAGE_BP) * 1e-4
+
+
+# ---------------------------------------------------------------- signal
+
+class SignalTracker:
+    """EMA-crossover trend signal scaled by realized minute volatility.
+
+    signal = (EMA_fast - EMA_slow) / EMA(|1-min price change|)
+    Shared by the shares bot (v1) and the options bot (v2).
+    """
+
+    def __init__(self, first_px, fast=6, slow=24, vol_span=30):
+        self.fast = self.slow = first_px
+        self.af, self.aslow = 2 / (fast + 1), 2 / (slow + 1)
+        self.ema_vol = 0.0005 * first_px
+        self.av = 2 / (vol_span + 1)
+        self.prev = first_px
+
+    def update(self, px):
+        self.fast += self.af * (px - self.fast)
+        self.slow += self.aslow * (px - self.slow)
+        self.ema_vol += self.av * (abs(px - self.prev) - self.ema_vol)
+        self.prev = px
+        return (self.fast - self.slow) / max(self.ema_vol, 1e-9)
 
 
 # ---------------------------------------------------------------- bot
@@ -108,10 +134,7 @@ class MomentumBot:
     def trade_day(self, prices):
         """Trade one day of minute closes. Returns day P&L."""
         eq_start = self.equity
-        fast = slow = prices[0]
-        af, aslow = 2 / (self.FAST + 1), 2 / (self.SLOW + 1)
-        ema_vol = 0.0005 * prices[0]   # EMA of abs price change
-        av = 2 / (30 + 1)
+        tracker = SignalTracker(prices[0], self.FAST, self.SLOW)
 
         pos = 0          # shares, signed
         entry_px = stop_px = 0.0
@@ -119,13 +142,10 @@ class MomentumBot:
 
         for t in range(1, MINUTES_PER_DAY):
             px = prices[t]
-            fast += af * (px - fast)
-            slow += aslow * (px - slow)
-            ema_vol += av * (abs(px - prices[t - 1]) - ema_vol)
+            signal = tracker.update(px)
+            ema_vol = tracker.ema_vol
             if t < self.WARMUP:
                 continue
-
-            signal = (fast - slow) / max(ema_vol, 1e-9)
 
             # --- manage open position
             if pos != 0:
