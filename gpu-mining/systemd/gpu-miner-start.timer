@@ -1,10 +1,10 @@
 [Unit]
-Description=Start GPU miner at off-peak window open (edit OnCalendar to your tariff)
+Description=Start GPU miner at off-peak window open (Ontario ULO: 11pm daily)
 
 [Timer]
-# Default: 22:00 local time, every day. Match this to YOUR utility's
-# off-peak schedule — many tariffs also differ on weekends.
-OnCalendar=*-*-* 22:00:00
+# Ontario Ultra-Low Overnight window opens 23:00 every day (weekdays and
+# weekends). The Powerwall enforces no draw cap during ULO.
+OnCalendar=*-*-* 23:00:00
 Persistent=true
 Unit=gpu-miner.service
 

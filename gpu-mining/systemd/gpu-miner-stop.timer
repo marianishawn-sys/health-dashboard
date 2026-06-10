@@ -2,7 +2,9 @@
 Description=Stop GPU miner at off-peak window close (edit OnCalendar to your tariff)
 
 [Timer]
-# Default: 07:00 local time, every day — pair with gpu-miner-start.timer.
+# Ontario ULO window closes 07:00 every day; at 07:00 the Powerwall's
+# mid-peak 750W household cap kicks in on weekdays, which the A40 +
+# server baseline cannot fit under — the miner must be down by then.
 OnCalendar=*-*-* 07:00:00
 Persistent=true
 Unit=gpu-miner-stop.service

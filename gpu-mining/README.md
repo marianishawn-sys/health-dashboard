@@ -25,6 +25,45 @@ Check live numbers before installing anything: whattomine.com or
 hashrate.no (use RTX 3090 as the A40 proxy), vast.ai/pricing for
 rental rates.
 
+## This server's actual tariff (Ontario ULO, Essex Powerlines)
+
+From the energy plan (03_The_Energy_Plan): four OEB rate bands, with
+Ultra-Low Overnight **11pm–7am every day at $0.039/kWh** (~11–15¢ CAD
+all-in after delivery charges and the Ontario Electricity Rebate),
+versus $0.391 on-peak (~47–52¢ all-in). The server runs 24/7
+regardless, so its baseline draw is sunk cost — only the A40's
+incremental ~220W while mining counts.
+
+Two constraints beyond price:
+
+- **Powerwall hardware caps**: mid-peak weekdays the household is
+  capped at 750W and on-peak at 525W. Cerebro's ~400–500W baseline
+  plus the RTX 8000 leaves no headroom for a 220W A40 under those
+  caps — so **ULO (11pm–7am) is the only mining window**, which is
+  what the timers now encode. ULO has no cap, and the Powerwall is
+  grid-charging then anyway.
+- **EMHASS/JARVIS gate**: the env file supports an optional Home
+  Assistant check (`input_select.jarvis_power_band == ulo_unlimited`)
+  so the miner obeys the energy plan's source of truth, not just the
+  clock. Mining is "heavy compute" in the plan's terms; the gate keeps
+  it in the headline window automatically.
+
+Their numbers through the calculator (USD, ~0.73 CAD→USD, all-in ULO
+≈ $0.095/kWh, card idle treated as sunk):
+
+```
+python3 profitability.py --gross 0.60 --watts 220 --idle-watts 0 \
+    --offpeak-rate 0.095 --peak-rate 0.18 --offpeak-hours 8
+```
+
+→ roughly **+$0.03/day (~$12/yr)** mining ULO-only at today's
+~$0.60/day gross. Hosting the card ~30% utilization nets ~$1.50/day
+(~$550/yr) — but note marketplace hosting sits awkwardly with the
+Powerwall caps: renters expect availability during your weekday
+4–9pm forbidden window, and daily forced downtime hurts host
+reliability scores. Local AI inference in the ULO window (the JARVIS
+plan itself) is arguably the A40's best yield of all.
+
 ## The calculator
 
 ```

@@ -14,6 +14,18 @@ smi() { nvidia-smi -i "$GPU_INDEX" "$@"; }
 
 case "${1:-}" in
   prepare)
+    # optional Home Assistant gate: defer to the EMHASS power-band entity
+    # (e.g. input_select.jarvis_power_band == ulo_unlimited) so the miner
+    # respects the energy plan even if the timers and the plan drift apart
+    if [[ -n "${HA_URL:-}" && -n "${HA_TOKEN:-}" ]]; then
+      band=$(curl -fsS -H "Authorization: Bearer $HA_TOKEN" \
+        "$HA_URL/api/states/${HA_GATE_ENTITY:-input_select.jarvis_power_band}" \
+        | python3 -c 'import sys, json; print(json.load(sys.stdin)["state"])')
+      if [[ "$band" != "${HA_GATE_VALUE:-ulo_unlimited}" ]]; then
+        echo "HA gate closed (power band: $band) — not starting miner." >&2
+        exit 1
+      fi
+    fi
     # refuse to mine if something else (AI job, rental) is using the card
     util=$(smi --query-gpu=utilization.gpu --format=csv,noheader,nounits)
     if (( util > BUSY_UTIL_THRESHOLD )); then
