@@ -36,17 +36,24 @@ incremental ~220W while mining counts.
 
 Two constraints beyond price:
 
-- **Powerwall hardware caps**: mid-peak weekdays the household is
-  capped at 750W and on-peak at 525W. Cerebro's ~400–500W baseline
-  plus the RTX 8000 leaves no headroom for a 220W A40 under those
-  caps — so **ULO (11pm–7am) is the only mining window**, which is
-  what the timers now encode. ULO has no cap, and the Powerwall is
-  grid-charging then anyway.
-- **EMHASS/JARVIS gate**: the env file supports an optional Home
-  Assistant check (`input_select.jarvis_power_band == ulo_unlimited`)
-  so the miner obeys the energy plan's source of truth, not just the
-  clock. Mining is "heavy compute" in the plan's terms; the gate keeps
-  it in the headline window automatically.
+- **Powerwall caps vs economics**: the A40 replaces the RTX 8000 as the
+  server's only GPU, so baseline (~400–500W) plus a 220W power-capped
+  A40 actually fits under the 750W mid-peak and 900W weekend caps
+  (on-peak 525W remains off-limits). But the *rates* close those
+  windows anyway: at ~15.5¢ USD/kWh all-in mid-peak, 220W of mining
+  costs ~$0.034/hr against ~$0.025/hr of gross revenue — a guaranteed
+  loss. Weekends are roughly breakeven. **ULO (11pm–7am) is the only
+  window where mining nets positive**, which is what the timers encode.
+- **The A40 is also JARVIS's GPU — and ULO is JARVIS's heavy-compute
+  window.** Training, fine-tuning, and batch inference want the same
+  card at the same hours. Mining is the residual workload, not the
+  priority: the busy-GPU guard means the miner won't start over a
+  running JARVIS job, and the orchestrator should `systemctl stop
+  gpu-miner.service` before launching overnight heavy work (and may
+  simply not restart it — a fine outcome, since JARVIS compute is
+  worth more than $0.03/night). The optional Home Assistant gate
+  (`input_select.jarvis_power_band == ulo_unlimited`) keeps the miner
+  obeying the energy plan's source of truth, not just the clock.
 
 Their numbers through the calculator (USD, ~0.73 CAD→USD, all-in ULO
 ≈ $0.095/kWh, card idle treated as sunk):
