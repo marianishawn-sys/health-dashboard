@@ -130,6 +130,22 @@ Pin the miner to a specific pool region near you, use a worker name
 (`WALLET.a40rig`), and benchmark 200/220/240W caps for an hour each —
 the hashrate-per-watt curve, not max hashrate, is what decides profit.
 
+## Dashboard feed (`gpu_status.sh`)
+
+Feeds the GPU panel in `SAVANT_Dashboard_v2.html`. Emits one JSON line:
+
+```
+{"generated":"…","workload":"miner|jarvis|idle","gpus":[{"name":"NVIDIA A40",
+ "util":37,"memUsed":18432,"memTotal":46068,"temp":71,"power":214,"powerLimit":220}]}
+```
+
+Wire it in n8n: **Webhook** (POST `/webhook/savant-gpu`) → **Execute
+Command** (`/usr/local/bin/gpu_status.sh`) → **Respond to Webhook**
+(stdout as `application/json`) — the same pattern as `savant-health`.
+Workload is `miner` when `gpu-miner.service` is active, `jarvis` when
+the card is >10% busy otherwise, else `idle`. The dashboard polls every
+30s and falls back to an "awaiting A40" snapshot when unreachable.
+
 ## Practical notes for the A40
 
 - Passively cooled (no fans of its own) — it relies entirely on server

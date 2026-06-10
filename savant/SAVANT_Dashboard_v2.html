@@ -354,6 +354,13 @@
   #bootLines{min-height:110px;min-width:430px;font:700 12.5px var(--mono);color:#7fd6e8;letter-spacing:1.5px}
   #bootLines .bln{opacity:0;animation:blin .25s forwards;padding:3px 0}
   @keyframes blin{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+  /* GPU panel bars */
+  .gbars{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+  .gbar .gl{display:flex;justify-content:space-between;font:700 9px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+  .gbar .gl b{color:#dff3ff}
+  .gbar .track{height:9px;border-radius:4px;background:rgba(6,18,32,.6);border:1px solid rgba(55,226,240,.14);overflow:hidden}
+  .gbar .track span{display:block;height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,rgba(37,216,196,.35),var(--forge));box-shadow:0 0 10px rgba(37,216,196,.5);transition:.5s}
+  .gbar .track span.hot{background:linear-gradient(90deg,rgba(255,92,107,.35),var(--red));box-shadow:0 0 10px rgba(255,92,107,.5)}
   @media(max-width:1900px){.detgrid{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
@@ -472,6 +479,20 @@
         <div class="ebnext" id="ebNext">&mdash;</div>
         <div class="note" style="margin-top:9px">Powerwall + ULO. Off-peak/rate-band pings <b>silenced</b>; low-battery + off-grid still alert.</div>
         <div class="feed">fed by <b>HA Enphase</b></div>
+      </div>
+      <div class="panel" id="gpuPanel" style="--ac:var(--forge)">
+        <div class="ph"><span class="id">GPU·09</span><span class="led" style="color:var(--forge)"></span><h2>GPU &mdash; A40</h2>
+          <span class="sub"><span class="pill" id="gpuState" style="color:#9fb4d8;border-color:#2a4a66;background:rgba(10,26,42,.6)">offline</span></span></div>
+        <div class="gbars">
+          <div class="gbar"><div class="gl"><span>CUDA util</span><b id="gpuUtil">&mdash;</b></div><div class="track"><span id="gpuUtilBar"></span></div></div>
+          <div class="gbar"><div class="gl"><span>VRAM</span><b id="gpuMem">&mdash;</b></div><div class="track"><span id="gpuMemBar"></span></div></div>
+        </div>
+        <div class="row">
+          <div class="stat"><div class="n" id="gpuTemp">&mdash;</div><div class="l">Temp</div></div>
+          <div class="stat"><div class="n" id="gpuPow">&mdash;</div><div class="l">Power</div></div>
+          <div class="stat"><div class="n" id="gpuCap">&mdash;</div><div class="l">Cap</div></div>
+        </div>
+        <div class="feed" id="gpuFeed">fed by <b>/webhook/savant-gpu</b> &middot; awaiting A40</div>
       </div>
       <div class="panel" style="--ac:var(--hearth)">
         <div class="ph"><span class="id">HOM·04</span><span class="led" style="color:var(--hearth)"></span><h2>Home</h2><span class="sub">HA</span></div>
@@ -682,6 +703,7 @@ function updateTicker(){const tape=document.getElementById('tape');if(!tape)retu
   if(TICK.pos){it.push('<span class="ti">FUND <b>'+TICK.pos.fund+'</b> &middot; G/L <b style="color:'+(TICK.pos.glv>=0?'var(--green)':'var(--red)')+'">'+TICK.pos.gl+'</b></span>');
     if(TICK.pos.best)it.push('<span class="ti">TOP <b style="color:var(--green)">'+TICK.pos.best+'</b> &middot; LAG <b style="color:var(--red)">'+TICK.pos.worst+'</b></span>');}
   if(TICK.h)it.push('<span class="ti">PULSE <b>'+TICK.h.cal+'</b>/'+TICK.h.tcal+' kcal &middot; protein <b style="color:'+(TICK.h.pOk?'var(--green)':'var(--red)')+'">'+TICK.h.p+'g/'+TICK.h.pf+'g</b></span>');
+  if(TICK.gpu)it.push('<span class="ti">A40 <b>'+TICK.gpu.util+'%</b> &middot; '+TICK.gpu.mem+(TICK.gpu.temp!=null?' &middot; <b style="color:'+(TICK.gpu.temp>=83?'var(--red)':TICK.gpu.temp>=75?'var(--yellow)':'var(--green)')+'">'+TICK.gpu.temp+'°C</b>':'')+' &middot; '+TICK.gpu.wl+'</span>');
   it.push('<span class="ti" style="color:#5c7d9c">SAVANT COMMAND CONSOLE &middot; Ctrl+K for commands</span>');
   const html=it.join('');tape.innerHTML=html+html;}
 function render(data){
@@ -1007,6 +1029,43 @@ function renderHealth(data,src){
   TICK.h={cal:Math.round(T.cal),tcal:tg.cal,p:Math.round(T.protein),pf:K.proteinFloor,pOk:T.protein>=K.proteinFloor};updateTicker();
 }
 
+/* ============================ GPU (A40) FEED ============================ */
+const GPU_CFG={url:"http://192.168.2.100:5678/webhook/savant-gpu"}; // n8n → gpu-mining/gpu_status.sh
+const GPU_SNAPSHOT={generated:"baked",workload:"offline",
+  gpus:[{index:0,name:"NVIDIA A40",util:0,memUsed:0,memTotal:46068,temp:null,power:0,powerLimit:300}]};
+const GPU_WL_STYLE={miner:['#ffd9a8','#5a3a1c','rgba(42,24,8,.6)'],jarvis:['#9fe9c4','#16463a','rgba(6,20,16,.6)'],
+  idle:['#bfe9f5','#1d4a78','rgba(8,22,38,.6)'],offline:['#9fb4d8','#2a4a66','rgba(10,26,42,.6)']};
+function renderGpu(data,live){
+  const g=(data.gpus&&data.gpus[0])||{};
+  const wl=data.workload||'offline',st=document.getElementById('gpuState');
+  const sty=GPU_WL_STYLE[wl]||GPU_WL_STYLE.offline;
+  st.textContent=wl;st.style.color=sty[0];st.style.borderColor=sty[1];st.style.background=sty[2];
+  const util=Math.round(g.util||0);
+  document.getElementById('gpuUtil').textContent=live?util+'%':'—';
+  document.getElementById('gpuUtilBar').style.width=(live?util:0)+'%';
+  const mu=(g.memUsed||0)/1024,mt=(g.memTotal||46068)/1024,mp=mt?Math.round(mu/mt*100):0;
+  document.getElementById('gpuMem').textContent=live?(mu.toFixed(1)+' / '+mt.toFixed(0)+' GB'):'— / 45 GB';
+  document.getElementById('gpuMemBar').style.width=(live?mp:0)+'%';
+  const temp=g.temp!=null?Math.round(g.temp):null,tEl=document.getElementById('gpuTemp');
+  tEl.textContent=(live&&temp!=null)?temp+'°C':'—';
+  /* A40 is passively cooled — chassis airflow is the only cooling; flag early */
+  tEl.className='n '+(temp==null?'':temp>=83?'red':temp>=75?'yellow':'green');
+  document.getElementById('gpuUtilBar').classList.toggle('hot',!!temp&&temp>=83);
+  document.getElementById('gpuPow').textContent=live?Math.round(g.power||0)+' W':'—';
+  document.getElementById('gpuCap').textContent=g.powerLimit?Math.round(g.powerLimit)+' W':'—';
+  document.getElementById('gpuFeed').innerHTML='fed by <b>/webhook/savant-gpu</b> · '+(live?esc(g.name||'GPU'):'awaiting A40');
+  TICK.gpu=live?{util:util,mem:mu.toFixed(1)+'/'+mt.toFixed(0)+' GB',temp:temp,wl:wl}:null;
+  updateTicker();
+}
+async function loadGpu(){
+  try{const ctrl=new AbortController(),t=setTimeout(()=>ctrl.abort(),5000);
+    const res=await fetch(GPU_CFG.url,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:ctrl.signal});
+    clearTimeout(t);if(!res.ok)throw new Error('HTTP '+res.status);
+    const d=await res.json();if(!d||!d.gpus||!d.gpus.length)throw new Error('no gpus');
+    renderGpu(d,true);
+  }catch(e){renderGpu(GPU_SNAPSHOT,false);}
+}
+
 /* ============================ CONNECTOR TRACERS ============================ */
 function drawConnectors(){
   const svg=document.getElementById('conn'),deck=document.querySelector('.deck'),core=document.getElementById('core');
@@ -1029,11 +1088,11 @@ document.getElementById('ptabs').addEventListener('click',e=>{const b=e.target.c
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+b.dataset.pane));});
 document.getElementById('posHead').addEventListener('click',e=>{const th=e.target.closest('th');if(th&&th.dataset.k)sortBy(th.dataset.k);});
 
-function refreshAll(){refresh();loadPositions();loadHealth();}
-render(SNAPSHOT);renderPositions(POS_SNAPSHOT,'snap');renderHealth(HEALTH_SNAPSHOT,'snap');renderEnergy();
+function refreshAll(){refresh();loadPositions();loadHealth();loadGpu();}
+render(SNAPSHOT);renderPositions(POS_SNAPSHOT,'snap');renderHealth(HEALTH_SNAPSHOT,'snap');renderGpu(GPU_SNAPSHOT,false);renderEnergy();
 drawConnectors();setTimeout(drawConnectors,400);setTimeout(drawConnectors,1200);
 setTimeout(refreshAll,800);
-setInterval(refresh,300000);setInterval(loadPositions,120000);setInterval(loadHealth,120000);setInterval(renderEnergy,60000);
+setInterval(refresh,300000);setInterval(loadPositions,120000);setInterval(loadHealth,120000);setInterval(renderEnergy,60000);setInterval(loadGpu,30000);
 
 /* ============================ FX TOGGLE ============================ */
 function fxOn(){return !document.body.classList.contains('fx-off');}
@@ -1051,6 +1110,7 @@ const ACTIONS=[
   {t:'Go to: Live Org Map',f:()=>scrollPanel('#orgmapBand')},
   {t:'Go to: Pulse — personal health',f:()=>scrollPanel('#pulseBand')},
   {t:'Go to: Positions — Vega desk',f:()=>scrollPanel('#positionsBand')},
+  {t:'Go to: GPU — A40 panel',f:()=>scrollPanel('#gpuPanel')},
   {t:'Tab: Long-Term Holdings',k:'1',f:()=>{scrollPanel('#positionsBand');goTab(0);}},
   {t:'Tab: Options',k:'2',f:()=>{scrollPanel('#positionsBand');goTab(1);}},
   {t:'Tab: Pipeline',k:'3',f:()=>{scrollPanel('#positionsBand');goTab(2);}},
