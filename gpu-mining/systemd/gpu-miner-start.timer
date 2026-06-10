@@ -1,0 +1,12 @@
+[Unit]
+Description=Start GPU miner at off-peak window open (edit OnCalendar to your tariff)
+
+[Timer]
+# Default: 22:00 local time, every day. Match this to YOUR utility's
+# off-peak schedule — many tariffs also differ on weekends.
+OnCalendar=*-*-* 22:00:00
+Persistent=true
+Unit=gpu-miner.service
+
+[Install]
+WantedBy=timers.target
