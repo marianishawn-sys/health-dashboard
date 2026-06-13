@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.10.2";
+    const VERSION = "v7.11.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -291,13 +291,27 @@
     let driveAccessToken = null;
     let folderId = null;
     let fileId = null;
+    let pendingTokenResolve = null;   // set by refreshToken(), fulfilled by the GIS callback
 
-    const driveFetch = async (url, opts = {}) => {
+    // Silently request a fresh access token (no UI prompt if the Google session is active).
+    const refreshToken = () => new Promise((resolve, reject) => {
+      if (!tokenClient) return reject(new Error("No token client"));
+      const to = setTimeout(() => { if (pendingTokenResolve) { pendingTokenResolve = null; reject(new Error("Token refresh timeout")); } }, 15000);
+      pendingTokenResolve = (tok) => { clearTimeout(to); resolve(tok); };
+      try { tokenClient.requestAccessToken({ prompt: "" }); }
+      catch (e) { clearTimeout(to); pendingTokenResolve = null; reject(e); }
+    });
+
+    const driveFetch = async (url, opts = {}, _retried = false) => {
       if (!driveAccessToken) throw new Error("Not authenticated");
       const res = await fetch(url, {
         ...opts,
         headers: { ...(opts.headers || {}), Authorization: "Bearer " + driveAccessToken },
       });
+      if (res.status === 401 && !_retried) {
+        await refreshToken();              // token expired → refresh, then retry once
+        return driveFetch(url, opts, true);
+      }
       if (res.status === 401) throw new Error("Token expired");
       return res;
     };
@@ -754,6 +768,7 @@
             callback: async (resp) => {
               if (resp.access_token) {
                 driveAccessToken = resp.access_token;
+                if (pendingTokenResolve) { const r = pendingTokenResolve; pendingTokenResolve = null; r(resp.access_token); return; }
                 setSignedIn(true);
                 await loadData();
               }
@@ -924,7 +939,7 @@
         return foods;
       };
 
-      const useFood = (slot, food, grams, notes, preferredUnit) => {
+      const useFood = (slot, food, grams, notes, opts = {}) => {
         const m = scaleMacros(food.per100g, grams);
         const entry = {
           id: uid("log"),
@@ -932,12 +947,7 @@
           name: food.name,
           brand: food.brand || "",
           grams,
-          ...(preferredUnit ? {
-            displayQty: ["g","oz","lb"].includes(preferredUnit)
-              ? gramsToUnit(grams, preferredUnit)
-              : round(grams / (food.servingG || grams), 1),
-            displayUnit: preferredUnit
-          } : {}),
+          ...(opts.displayUnit ? { displayQty: opts.displayQty, displayUnit: opts.displayUnit } : {}),
           ...m,
           ...(notes ? { notes } : {}),
           ts: new Date().toISOString(),
@@ -946,7 +956,13 @@
           ...food,
           lastUsed: new Date().toISOString(),
           useCount: (food.useCount || 0) + 1,
-          ...(preferredUnit ? { preferredUnit } : {}),
+          ...(opts.preferredUnit ? { preferredUnit: opts.preferredUnit } : {}),
+          // Persist the serving definition the user logged by, so it's the default next time
+          ...(opts.servingDef ? {
+            servingG: opts.servingDef.grams,
+            servingUnit: opts.servingDef.unit,
+            refPortion: { grams: opts.servingDef.grams, label: "1 " + opts.servingDef.unit },
+          } : {}),
         };
         const foods = upsertFood(updatedFood);
         const day = data.logs[selectedDate] || {};
@@ -1133,7 +1149,7 @@
               apiKey={apiKey}
               onMissingKey={() => { setShowFoodPicker(false); setShowSettings(true); }}
               onClose={() => setShowFoodPicker(false)}
-              onLog={(food, grams, notes, preferredUnit) => { useFood(foodPickerSlot, food, grams, notes, preferredUnit); setShowFoodPicker(false); }}
+              onLog={(food, grams, notes, opts) => { useFood(foodPickerSlot, food, grams, notes, opts); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
               onLogAll={(foods) => logMultipleScanned(foodPickerSlot, foods)}
               onDeleteFood={(food) => saveData({ ...data, foods: (data.foods || []).filter(f => f.id !== food.id) })}
@@ -1535,7 +1551,7 @@
                 food={selectedFood}
                 slot={slot}
                 onCancel={() => { setSelectedFood(null); setMode("search"); }}
-                onLog={(grams, notes, preferredUnit) => onLog(selectedFood, grams, notes, preferredUnit)}
+                onLog={(grams, notes, opts) => onLog(selectedFood, grams, notes, opts)}
               />
             )}
 
@@ -1713,7 +1729,8 @@
     // ───────────────────── EDIT ENTRY MODAL ─────────────────────
     function EditEntryModal({ entry, slot, data, onSave, onDelete, onClose }) {
       const food = data.foods.find(f => f.id === entry.foodId);
-      const initUnit = entry.displayUnit || food?.preferredUnit || "g";
+      // Only weight units are editable here; count-unit entries (e.g. "large eggs") edit in grams.
+      const initUnit = [entry.displayUnit, food?.preferredUnit].find(u => ["g","oz","lb"].includes(u)) || "g";
       const [unit, setUnit] = useState(initUnit);
       const [grams, setGrams] = useState(entry.grams || 100);
       const [notes, setNotes] = useState(entry.notes || "");
@@ -1817,34 +1834,70 @@
 
     // ───────────────────── PORTION ADJUST ─────────────────────
     function PortionAdjust({ food, slot, onCancel, onLog }) {
-      const isCountMode = !!food.servingUnit;
-      const [unit, setUnit]   = useState(food.preferredUnit || "g");
-      const [grams, setGrams] = useState(food.refPortion?.grams || 100);
-      const [count, setCount] = useState(1);
+      const pluralize = (w, n) => n === 1 ? w : (w === "potato" ? "potatoes" : w + "s");
+      // Derive a clean unit name from a refPortion label like "1 large egg" → "large egg"
+      const deriveUnit = (label) => {
+        if (!label) return "serving";
+        const m = label.match(/^[\d.]+\s+(.+?)s?$/);
+        if (m) {
+          const w = m[1].trim();
+          if (/^[a-zA-Z][a-zA-Z ]*$/.test(w) && !/^(g|gram|grams|ml|kg|oz|lb)$/i.test(w)) return w;
+        }
+        return "serving";
+      };
+      const baseServG = food.servingG || (food.refPortion && food.refPortion.grams) || 100;
+      const baseUnit  = food.servingUnit || deriveUnit(food.refPortion && food.refPortion.label);
+      const canServe  = !!(food.servingG || (food.refPortion && food.refPortion.grams));
+
+      // Default to count mode only when the food has a real named unit (egg, stick…), not generic "serving"
+      const [mode, setMode]   = useState(canServe && baseUnit !== "serving" ? "serving" : "grams");
+      const [unit, setUnit]   = useState(food.preferredUnit && ["g","oz","lb"].includes(food.preferredUnit) ? food.preferredUnit : "g");
+      const [servingsStr, setServingsStr] = useState("1");
+      const [gramsStr, setGramsStr]       = useState(String(baseServG));
+      const [servG, setServG]   = useState(baseServG);
+      const [servUnit, setServUnit] = useState(baseUnit);
+      const [editServ, setEditServ] = useState(false);
+      const [servGStr, setServGStr] = useState(String(baseServG));
+      const [servUnitStr, setServUnitStr] = useState(baseUnit);
       const [notes, setNotes] = useState("");
 
-      const pluralize = (word, n) => {
-        if (n === 1) return word;
-        if (word === "potato") return "potatoes";
-        return word + "s";
+      const servings   = parseFloat(servingsStr) || 0;
+      const gramsInput = Math.max(0, unitToGrams(parseFloat(gramsStr) || 0, unit));
+      const actualGrams = mode === "serving" ? round(servings * servG, 1) : gramsInput;
+      const macros = scaleMacros(food.per100g, Math.max(0, actualGrams));
+
+      const stepGrams = (delta) => {
+        const g = Math.max(0, unitToGrams(parseFloat(gramsStr) || 0, unit) + delta);
+        setGramsStr(String(gramsToUnit(g, unit)));
+      };
+      const changeUnit = (u) => {
+        const g = unitToGrams(parseFloat(gramsStr) || 0, unit);
+        setUnit(u); setGramsStr(String(gramsToUnit(g, u)));
+      };
+      const stepServings = (delta) => setServingsStr(String(Math.max(0, round(servings + delta, 2))));
+      const applyServEdit = () => {
+        const g = parseFloat(servGStr);
+        if (g > 0) setServG(g);
+        if (servUnitStr.trim()) setServUnit(servUnitStr.trim().toLowerCase());
+        setEditServ(false);
       };
 
-      const actualGrams = isCountMode ? count * (food.servingG || 100) : grams;
-      const macros      = scaleMacros(food.per100g, actualGrams);
-      const displayQty  = isCountMode ? count : gramsToUnit(grams, unit);
-
-      // gram-mode presets
-      const presets = [
-        { label: food.refPortion?.label || "100g", grams: food.refPortion?.grams || 100 },
-        { label: "100g", grams: 100 },
-        { label: "150g", grams: 150 },
-        { label: "200g", grams: 200 },
-      ].filter((p, i, arr) => arr.findIndex(x => x.grams === p.grams) === i);
-
-      const handleQtyChange = (v) => {
-        const g = unitToGrams(parseFloat(v) || 0, unit);
-        setGrams(Math.max(1, g));
+      const doLog = () => {
+        const g = Math.max(1, round(actualGrams, 1));
+        let opts = {};
+        if (mode === "serving") {
+          opts = { displayQty: round(servings, 2), displayUnit: pluralize(servUnit, servings),
+                   servingDef: { grams: servG, unit: servUnit } };
+        } else if (unit !== "g") {
+          opts = { displayQty: gramsToUnit(g, unit), displayUnit: unit, preferredUnit: unit };
+        }
+        onLog(g, notes.trim() || undefined, opts);
       };
+
+      const stepBtn = { width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" };
+      const bigInput = { flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none", minWidth:0 };
+      const preset = (active) => ({ flex:1, background: active ? `${S.accent}22` : S.panel2, border:`1px solid ${active ? S.accent : S.border}`, color: active ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" });
+      const toggle = (active) => ({ flex:1, background: active ? `${S.accent}22` : S.panel2, border:`1px solid ${active ? S.accent : S.border}`, color: active ? S.accent : S.dim, padding:"8px", borderRadius:8, fontSize:10, fontWeight:700, letterSpacing:1, cursor:"pointer" });
 
       return (
         <div>
@@ -1866,44 +1919,66 @@
 
           {/* Portion */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>
-              {isCountMode ? "HOW MANY " + food.servingUnit.toUpperCase() + "S?" : "PORTION"}
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-              <button onClick={() => isCountMode ? setCount(c => Math.max(1, c - 1)) : setGrams(g => Math.max(1, g - 25))}
-                style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-                {isCountMode ? "−1" : "−25g"}
-              </button>
-              <input
-                type="number" inputMode="decimal"
-                value={displayQty}
-                onChange={e => isCountMode
-                  ? setCount(Math.max(1, parseInt(e.target.value) || 1))
-                  : handleQtyChange(e.target.value)}
-                style={{ flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
-              />
-              <button onClick={() => isCountMode ? setCount(c => c + 1) : setGrams(g => g + 25)}
-                style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>
-                {isCountMode ? "+1" : "+25g"}
-              </button>
-            </div>
-            {isCountMode ? (
-              <div style={{ display:"flex", gap:6 }}>
-                {[1,2,3,4].map(n => (
-                  <button key={n} onClick={() => setCount(n)}
-                    style={{ flex:1, background: count===n ? `${S.accent}22` : S.panel2, border:`1px solid ${count===n ? S.accent : S.border}`, color: count===n ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, cursor:"pointer" }}>
-                    {n} {pluralize(food.servingUnit, n)}
-                  </button>
-                ))}
+            {/* mode toggle */}
+            {canServe && (
+              <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+                <button onClick={() => setMode("serving")} style={toggle(mode==="serving")}>BY {pluralize(servUnit,2).toUpperCase()}</button>
+                <button onClick={() => setMode("grams")} style={toggle(mode==="grams")}>BY WEIGHT</button>
               </div>
+            )}
+
+            {mode === "serving" ? (
+              <>
+                <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>HOW MANY {pluralize(servUnit,2).toUpperCase()}?</div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <button onClick={() => stepServings(-1)} style={stepBtn}>−1</button>
+                  <input type="text" inputMode="decimal" value={servingsStr}
+                    onChange={e => setServingsStr(e.target.value)}
+                    onBlur={() => { if (!(parseFloat(servingsStr) > 0)) setServingsStr("1"); }}
+                    style={bigInput} />
+                  <button onClick={() => stepServings(1)} style={stepBtn}>+1</button>
+                </div>
+                <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                  {[1,2,3,4].map(n => (
+                    <button key={n} onClick={() => setServingsStr(String(n))} style={preset(servings===n)}>
+                      {n} {pluralize(servUnit,n)}
+                    </button>
+                  ))}
+                </div>
+                {editServ ? (
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ fontSize:11, color:S.dim }}>1</span>
+                    <input value={servUnitStr} onChange={e=>setServUnitStr(e.target.value)} placeholder="egg, stick…"
+                      style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, borderRadius:7, padding:"7px 8px", color:S.text, fontSize:12, outline:"none", minWidth:0 }} />
+                    <span style={{ fontSize:11, color:S.dim }}>=</span>
+                    <input type="text" inputMode="decimal" value={servGStr} onChange={e=>setServGStr(e.target.value)} placeholder="g"
+                      style={{ width:56, background:S.panel2, border:"1px solid "+S.border, borderRadius:7, padding:"7px 8px", color:S.text, fontSize:12, outline:"none", textAlign:"center" }} />
+                    <span style={{ fontSize:11, color:S.dim }}>g</span>
+                    <button onClick={applyServEdit} style={{ background:S.accent, color:"#0a0c0f", border:"none", borderRadius:7, padding:"7px 10px", fontSize:11, fontWeight:700, cursor:"pointer" }}>OK</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setServGStr(String(servG)); setServUnitStr(servUnit); setEditServ(true); }}
+                    style={{ background:"none", border:"none", color:S.dim, fontSize:11, cursor:"pointer", padding:0, letterSpacing:0.3 }}>
+                    1 {servUnit} = {round(servG)} g · ✎ edit
+                  </button>
+                )}
+              </>
             ) : (
               <>
-                <UnitSelector unit={unit} onChange={setUnit} />
+                <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>PORTION</div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                  <button onClick={() => stepGrams(-25)} style={stepBtn}>−25g</button>
+                  <input type="text" inputMode="decimal" value={gramsStr}
+                    onChange={e => setGramsStr(e.target.value)}
+                    onBlur={() => { if (!(parseFloat(gramsStr) > 0)) setGramsStr(String(gramsToUnit(baseServG, unit))); }}
+                    style={bigInput} />
+                  <button onClick={() => stepGrams(25)} style={stepBtn}>+25g</button>
+                </div>
+                <UnitSelector unit={unit} onChange={changeUnit} />
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
-                  {presets.map(p => (
-                    <button key={p.label} onClick={() => setGrams(p.grams)}
-                      style={{ flex:1, background: grams === p.grams ? `${S.accent}22` : S.panel2, border:`1px solid ${grams === p.grams ? S.accent : S.border}`, color: grams === p.grams ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer", whiteSpace:"nowrap", minWidth:0, overflow:"hidden", textOverflow:"ellipsis" }}>
-                      {unit === "g" ? p.label : gramsToUnit(p.grams, unit) + " " + unit}
+                  {[baseServG, 100, 150, 200].filter((v,i,a) => a.indexOf(v)===i).map(gv => (
+                    <button key={gv} onClick={() => setGramsStr(String(gramsToUnit(gv, unit)))} style={preset(gramsInput===gv)}>
+                      {gramsToUnit(gv, unit)} {unit}
                     </button>
                   ))}
                 </div>
@@ -1936,9 +2011,9 @@
             rows={2}
             style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
           />
-          <button onClick={() => onLog(actualGrams, notes.trim() || undefined, isCountMode ? food.servingUnit : unit !== "g" ? unit : undefined)}
+          <button onClick={doLog}
             style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-            LOG {displayQty} {isCountMode ? pluralize(food.servingUnit, count) : unit}
+            LOG {mode === "serving" ? round(servings,2) + " " + pluralize(servUnit, servings) : gramsToUnit(actualGrams, unit) + " " + unit}
           </button>
         </div>
       );
