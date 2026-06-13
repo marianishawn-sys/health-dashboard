@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.11.0";
+    const VERSION = "v7.11.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -3778,14 +3778,28 @@ ${parseText}`;
           // shared first words (e.g. "Organic Medjool Dates" → "Organic chicken
           // drumsticks"), silently merging into the wrong item. A harmless dup is
           // far better than corrupting an unrelated pantry entry.
+          // Macros + serving info captured by the scan
+          const sm = raw.per100g && raw.per100g.cal != null ? {
+            per100g: { cal:raw.per100g.cal||0, protein:raw.per100g.protein||0, carbs:raw.per100g.carbs||0, fat:raw.per100g.fat||0, fibre:raw.per100g.fibre||0 },
+            ...(raw.servingG > 0 ? { servingG: raw.servingG } : {}),
+            ...(typeof raw.servingUnit === "string" && raw.servingUnit.trim() ? { servingUnit: raw.servingUnit.trim().toLowerCase() } : {}),
+          } : null;
           let ing = newIngs.find(i => (i.name||"").toLowerCase().trim()===nl);
           let itemId;
           if (!ing) {
             itemId = uid("ing");
             const cat = (raw.category||"PANTRY").toLowerCase();
-            ing = { id:itemId, name:raw.name||"Unknown", defaultUnit:"portions", category:["freezer","fridge"].includes(cat)?cat:"pantry" };
+            ing = { id:itemId, name:raw.name||"Unknown", defaultUnit:"portions", category:["freezer","fridge"].includes(cat)?cat:"pantry", ...(sm || {}) };
             newIngs.push(ing);
-          } else { itemId = ing.id; }
+          } else {
+            itemId = ing.id;
+            // backfill macros onto an existing ingredient that lacks them
+            if (sm && (!ing.per100g || ing.per100g.cal == null)) {
+              const idx = newIngs.findIndex(i => i.id === itemId);
+              newIngs[idx] = { ...ing, ...sm };
+              ing = newIngs[idx];
+            }
+          }
           const m = String(raw.quantity||"").match(/^(\d+\.?\d*)\s*([a-zA-Z]+)?/);
           const qty  = m ? parseFloat(m[1]) : null;
           const unit = (m&&m[2]) ? m[2] : ing.defaultUnit;
@@ -4103,9 +4117,10 @@ ${parseText}`;
         try {
           const base64 = dataUrl.split(",")[1];
           const mimeType = dataUrl.match(/data:(.*?);/)[1];
+          const shape = "{\"name\":\"specific name\",\"brand\":\"\",\"category\":\"FREEZER|FRIDGE|PANTRY\",\"quantity\":\"e.g. 500g or 1L\",\"expiry\":\"YYYY-MM-DD if visible else empty\",\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"servingG\":number_or_null,\"servingUnit\":\"singular count unit like egg/stick/slice if naturally counted, else empty\",\"confidence\":\"HIGH|MEDIUM|LOW\"}";
           const prompt = mode === "single"
-            ? "Identify the single product in this image. Read the label/package. Return ONLY valid JSON: {\"items\":[{\"name\":\"specific name\",\"brand\":\"\",\"category\":\"FREEZER|FRIDGE|PANTRY\",\"quantity\":\"e.g. 500g or 1L\",\"expiry\":\"YYYY-MM-DD if visible else empty\",\"confidence\":\"HIGH|MEDIUM|LOW\"}]}"
-            : "Identify EVERY visible food item in this photo of a freezer/fridge/pantry shelf. Be exhaustive. Return ONLY valid JSON: {\"items\":[{\"name\":\"specific name\",\"brand\":\"\",\"category\":\"FREEZER|FRIDGE|PANTRY\",\"quantity\":\"approximate\",\"expiry\":\"\",\"confidence\":\"HIGH|MEDIUM|LOW\"}]}";
+            ? "Identify the single product in this image. Read the label/package. For per100g nutrition, use the Nutrition Facts panel if visible; otherwise give typical values for this food. ALWAYS include per100g. Return ONLY valid JSON: {\"items\":[" + shape + "]}"
+            : "Identify EVERY visible food item in this photo of a freezer/fridge/pantry shelf. Be exhaustive. For each item ALWAYS include per100g nutrition (cal, protein, carbs, fat, fibre) — read the label if legible, else give typical values for that food. Return ONLY valid JSON: {\"items\":[" + shape + "]}";
 
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
@@ -4117,7 +4132,7 @@ ${parseText}`;
             },
             body: JSON.stringify({
               model: CLAUDE_MODEL,
-              max_tokens: 2000,
+              max_tokens: 4000,
               messages: [{
                 role: "user",
                 content: [
@@ -4221,6 +4236,11 @@ ${parseText}`;
                   <input type="text" value={r.name} onChange={e => setResults(results.map(x => x.id === r.id ? { ...x, name: e.target.value } : x))}
                     style={{ width:"100%", background:"transparent", border:"none", color:S.text, fontSize:13, fontWeight:500, outline:"none", padding:0 }} />
                   <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>{r.category} · {r.quantity || "—"} {r.expiry && "· exp "+r.expiry}</div>
+                  {r.per100g && r.per100g.cal != null && (
+                    <div style={{ fontSize:9, color:S.dimmer, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                      per 100g: {round(r.per100g.cal)}kcal · {round(r.per100g.protein,1)}P · {round(r.per100g.carbs,1)}C · {round(r.per100g.fat,1)}F
+                    </div>
+                  )}
                 </div>
                 <span style={{ fontSize:9, letterSpacing:1, color: r.confidence === "HIGH" ? S.green : r.confidence === "MEDIUM" ? S.accent : S.red, flexShrink:0 }}>{r.confidence}</span>
               </div>
