@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.11.0
+# Nutrition Concierge — v7.11.1
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.11.1 — Pantry scan captures macros
+- The pantry-scan prompt only asked for name/category/quantity, so scanned items had **no per100g** (most of the pantry ended up macro-less). The prompt (single + bulk) now requires `per100g {cal,protein,carbs,fat,fibre}` plus optional `servingG`/`servingUnit` — read the Nutrition Facts panel if visible, else typical values. `max_tokens` 2000→4000.
+- `handleScanResult` stores `per100g` (+ serving info) on new ingredients and backfills macros onto an existing matched ingredient that lacks them. Scan review shows the captured per-100g line.
+- One-time data backfill: standard per-100g macros written to all 53 existing pantry items that were missing them (meats, dairy, produce, full condiment/sauce set), with natural serving units where obvious. Written to the Drive data file with a backup.
 
 ### v7.11.0 — Log by natural unit + token auto-refresh
 - **Drive token auto-refresh:** the OAuth access token expires ~1h into a session; previously every save then failed silently (red ERROR, data loss). `driveFetch` now silently re-requests a token on 401 and retries once (`refreshToken` via the GIS callback). Fixes the recurring "didn't save" episodes.
