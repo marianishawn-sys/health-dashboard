@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.10.0
+# Nutrition Concierge — v7.11.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,21 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.11.0 — Log by natural unit + token auto-refresh
+- **Drive token auto-refresh:** the OAuth access token expires ~1h into a session; previously every save then failed silently (red ERROR, data loss). `driveFetch` now silently re-requests a token on 401 and retries once (`refreshToken` via the GIS callback). Fixes the recurring "didn't save" episodes.
+- **PortionAdjust reworked** — **BY ‹UNIT› / BY WEIGHT** toggle:
+  - Count mode logs 1/2/3 of a named unit. The unit + grams-per-unit are derived from `servingUnit`/`refPortion` (e.g. "Free-run eggs" 50 g → "large egg"), **editable inline** ("1 stick = 12 g") and **persisted to the food** (`servingG`/`servingUnit`/`refPortion`) so it's the default next time.
+  - Defaults to count only when there's a real named unit; weight-natural foods (Skyr/honey) default to weight. Both always toggleable.
+  - `useFood` gains an `opts` arg `{displayQty, displayUnit, servingDef, preferredUnit}`.
+- **Clearable inputs:** portion fields are string state (`type=text inputMode=decimal`), clearable/retypable; clamp on blur, not per keystroke.
+- **EditEntryModal:** count-unit entries (e.g. "large eggs") now edit in grams instead of mis-treating the count as grams.
+
+### v7.10.2 — Scan/recipe matching fix (data corruption)
+- Pantry-scan/recipe ingredient matching was fuzzy on first-word substring across all registry names → a scanned "Organic Medjool Dates" hijacked "Organic chicken drumsticks" quantity. Now **exact (case-insensitive) name match only** in the pantry scan, coach ingest, and AI recipe parser.
+
+### v7.10.1 — Immediate pantry saves + toast
+- Pantry scan/manual adds save immediately (`saveData(newData, immediate=true)`) with a green confirmation toast.
 
 ### v7.10.0 — API key syncs across devices
 - The Anthropic API key now syncs through the Drive data file instead of being per-device localStorage only. Enter it once on any device → others adopt it on next load.
