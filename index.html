@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.11.1";
+    const VERSION = "v7.12.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -2703,10 +2703,38 @@
       const [search, setSearch]         = useState("");
       const [expandedId, setExpandedId] = useState(null);
       const [importMsg, setImportMsg]   = useState(""); // "" | progress string | result string
+      const [diaryDate, setDiaryDate]   = useState(isoToday());
+      const [diaryMeal, setDiaryMeal]   = useState("dinner");
+      const [diaryServings, setDiaryServings] = useState("1");
+      const [diaryMsg, setDiaryMsg]     = useState("");
       const csvFileRef = useRef(null);
 
       const recipes     = data.recipes     || [];
       const ingredients = data.ingredients || [];
+
+      const addRecipeToDiary = (recipe) => {
+        const ps = recipe.perServing;
+        if (!ps) return;
+        const n = parseFloat(diaryServings) || 0;
+        if (n <= 0) return;
+        const entry = {
+          id: uid("log"), name: recipe.name, brand: recipe.servingLabel || "", recipeId: recipe.id,
+          grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings",
+          cal: round((ps.cal||0)*n), protein: round((ps.protein||0)*n,1), carbs: round((ps.carbs||0)*n,1),
+          fat: round((ps.fat||0)*n,1), fibre: round((ps.fibre||0)*n,1),
+          source: "recipe", ts: new Date().toISOString(),
+        };
+        const logs = data.logs || {};
+        const day  = logs[diaryDate] || {};
+        const meal = [...(day[diaryMeal] || []), entry];
+        setData({ ...data, logs: { ...logs, [diaryDate]: { ...day, [diaryMeal]: meal } } }, true);
+        setDiaryMsg(`✓ ${round(n,2)} ${n===1?"serving":"servings"} of ${recipe.name} → ${diaryMeal}`);
+      };
+      useEffect(() => {
+        if (!diaryMsg) return;
+        const t = setTimeout(() => setDiaryMsg(""), 5000);
+        return () => clearTimeout(t);
+      }, [diaryMsg]);
 
       // ── MFP CSV import ──
       const importCSV = async (file) => {
@@ -3099,6 +3127,11 @@ ${parseText}`;
           </div>
 
           {/* ── Recipe list ── */}
+          {diaryMsg && (
+            <div onClick={()=>setDiaryMsg("")} style={{ background:`${S.green}1a`, border:`1px solid ${S.green}55`, color:S.green, borderRadius:8, padding:"8px 10px", marginBottom:10, fontSize:11, fontWeight:600, cursor:"pointer", textAlign:"center" }}>
+              {diaryMsg}
+            </div>
+          )}
           {filtered.length === 0 && (
             <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
               {search ? "No matches." : "No recipes yet. Add one above or paste recipe text to parse."}
@@ -3149,6 +3182,38 @@ ${parseText}`;
                       <div style={{ fontSize:12, color:S.dim, marginTop:10, lineHeight:1.5,
                         fontStyle:"italic" }}>{recipe.instructions}</div>
                     )}
+
+                    {/* Add to diary */}
+                    {recipe.perServing && (
+                      <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid "+S.border }}>
+                        <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:8, fontWeight:600 }}>ADD TO DIARY</div>
+                        <input type="date" value={diaryDate} max={isoToday()} onChange={e=>e.target.value&&setDiaryDate(e.target.value)}
+                          style={{ width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"9px 10px", color:S.text, fontSize:12, outline:"none", marginBottom:8, boxSizing:"border-box" }} />
+                        <div style={{ display:"flex", gap:5, marginBottom:8 }}>
+                          {["breakfast","lunch","dinner","snacks"].map(mk => (
+                            <button key={mk} onClick={()=>setDiaryMeal(mk)}
+                              style={{ flex:1, padding:"7px 4px", borderRadius:7, border:`1px solid ${diaryMeal===mk?S.accent:S.border}`, background:diaryMeal===mk?`${S.accent}22`:S.panel2, color:diaryMeal===mk?S.accent:S.dim, fontSize:10, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>
+                              {mk.slice(0,3).toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                          <input type="text" inputMode="decimal" value={diaryServings} onChange={e=>setDiaryServings(e.target.value)}
+                            style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"9px 10px", color:S.text, fontSize:13, outline:"none" }} />
+                          <span style={{ fontSize:11, color:S.dim, whiteSpace:"nowrap", minWidth:62, textAlign:"center" }}>servings</span>
+                        </div>
+                        {(() => { const n = parseFloat(diaryServings)||0; const ps = recipe.perServing; return (
+                          <div style={{ fontSize:10, color:S.dimmer, marginBottom:8, fontFamily:"'DM Mono',monospace" }}>
+                            will log: {round((ps.cal||0)*n)} cal · {round((ps.protein||0)*n,1)}P · {round((ps.carbs||0)*n,1)}C · {round((ps.fat||0)*n,1)}F
+                          </div>
+                        ); })()}
+                        <button onClick={() => addRecipeToDiary(recipe)}
+                          style={{ width:"100%", background:S.green, color:"#0a0c0f", border:"none", borderRadius:8, padding:"11px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                          ＋ ADD TO DIARY
+                        </button>
+                      </div>
+                    )}
+
                     <div style={{ display:"flex", gap:8, marginTop:12 }}>
                       <button onClick={() => setEditRecipe({ ...recipe })}
                         style={{ flex:1, background:"none", border:"1px solid "+S.dim, color:S.dim,
