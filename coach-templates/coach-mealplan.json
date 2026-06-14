@@ -1,0 +1,7 @@
+{
+  "type": "mealplan",
+  "entries": [
+    { "date": "2026-06-16", "slot": "dinner", "recipeName": "BBQ Strip Loin", "servings": 2 },
+    { "date": "2026-06-17", "slot": "lunch", "recipeName": "Beef Taco Meat", "servings": 1 }
+  ]
+}

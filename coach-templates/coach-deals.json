@@ -1,0 +1,8 @@
+{
+  "type": "deals",
+  "updatedAt": "2026-06-13",
+  "deals": [
+    { "store": "No Frills", "item": "Boneless skinless chicken breast", "price": "$3.99/lb", "note": "20x PC Optimum", "expires": "2026-06-19" },
+    { "store": "Metro", "item": "Large eggs (18 pk)", "price": "$4.49", "note": "", "expires": "2026-06-18" }
+  ]
+}

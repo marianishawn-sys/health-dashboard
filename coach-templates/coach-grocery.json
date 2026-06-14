@@ -1,0 +1,8 @@
+{
+  "type": "grocery",
+  "items": [
+    { "name": "Strip loin", "quantity": 4, "unit": "portions" },
+    { "name": "Avocados", "quantity": 6, "unit": "" },
+    { "name": "Heavy cream" }
+  ]
+}

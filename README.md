@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.12.0
+# Nutrition Concierge — v7.13.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.13.0 — Coach can drive groceries + deals
+- Two new coach drop-box file types in `ingestCoachFiles`: **`coach-grocery.json`** (adds shopping-list items tagged `source:"coach"`, links to ingredient by exact name, dedupes unchecked coach items) and **`coach-deals.json`** (replaces the Deals tab "Active Deals" list with `{store,item,price,note,expires}` entries + `updatedAt`).
+- **Deals tab is now data-driven** (`DealsTab` renders `data.deals`); the static placeholder only shows when no deals are loaded.
+- Added the **Orchestrator brief** (`HEALTH-CONCIERGE-ORCHESTRATOR-BRIEF.md` in the Health Concierge folder) and copy-paste **templates** (`coach-templates/`). Corrected the documented coach folder (Health Concierge folder, not `macro-log`).
 
 ### v7.12.0 — Add to Diary from each recipe
 - Expanded recipe cards get an **ADD TO DIARY** panel: date picker, meal selector (Bre/Lun/Din/Sna), servings input, and a live "will log" macro preview.
@@ -184,8 +189,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
 | `coach-additions.json` | `{ type:"additions", foods:[{name, brand, per100g:{cal,protein,carbs,fat,fibre}}] }` |
 | `coach-recipes.json` | `{ type:"recipes", recipes:[{name, servings, ingredients:[{itemName, quantity, unit}], instructions}] }` |
 | `coach-mealplan.json` | `{ type:"mealplan", entries:[{date, slot, recipeName, servings}] }` |
+| `coach-grocery.json` _(v7.13)_ | `{ type:"grocery", items:[{name, quantity?, unit?}] }` → shopping list, source `coach` |
+| `coach-deals.json` _(v7.13)_ | `{ type:"deals", updatedAt?, deals:[{store?, item, price?, note?, expires?}] }` → Deals tab |
 
-- Errors during ingest leave the file in place for retry on next load.
+- Files go in the **`04 - Personal / Health Concierge`** folder (with `dashboard-data.json`), not `macro-log`. Errors during ingest leave the file in place for retry on next load. Full contract: `HEALTH-CONCIERGE-ORCHESTRATOR-BRIEF.md`; templates: `health-dashboard/coach-templates/`.
 
 ---
 
@@ -232,52 +239,28 @@ Migrations are idempotent and run automatically on load.
 
 ---
 
-## Coach file format (for Claude.ai)
+## Coach file format (for Claude.ai / the Health Concierge Orchestrator)
 
-Place files in the Google Drive folder `macro-log` (same folder as `dashboard-data.json`). The dashboard reads and deletes them on next load.
+The coach drives the app by writing `coach-*.json` files into the Google Drive folder
+**`04 - Personal / Health Concierge`** — the folder that contains `dashboard-data.json` (NOT the
+`macro-log` subfolder). On every load the app **drains and deletes** them: reads each, merges into
+`dashboard-data.json`, deletes the file. The coach **reads** `dashboard-data.json` to see pantry/logs/recipes/etc.
 
-**coach-additions.json** — add foods to the library:
-```json
-{
-  "type": "additions",
-  "foods": [
-    {
-      "name": "Grass-Fed Beef Tallow",
-      "brand": "",
-      "per100g": { "cal": 902, "protein": 0, "carbs": 0, "fat": 100, "fibre": 0 }
-    }
-  ]
-}
-```
+Five file types (each needs the correct top-level `"type"`); ingest order per load is additions → recipes → mealplan:
 
-**coach-recipes.json** — add recipes (ingredients by name, matched to registry):
-```json
-{
-  "type": "recipes",
-  "recipes": [
-    {
-      "name": "BBQ Strip Loin",
-      "servings": 2,
-      "ingredients": [
-        { "itemName": "Strip Loin", "quantity": 400, "unit": "g" },
-        { "itemName": "EVOO", "quantity": 20, "unit": "ml" }
-      ],
-      "instructions": "Season with salt. Grill 4 min/side."
-    }
-  ]
-}
-```
+| File | `type` | Effect |
+|------|--------|--------|
+| `coach-additions.json` | `additions` | Add foods to library. `{ foods:[{name, brand?, per100g:{cal,protein,carbs,fat,fibre}}] }`. Skips existing names. |
+| `coach-recipes.json` | `recipes` | Add recipes. `{ recipes:[{name, servings, ingredients:[{itemName, quantity, unit}], instructions}] }`. Ingredients matched to registry by exact name. Skips existing names. |
+| `coach-mealplan.json` | `mealplan` | Schedule meals. `{ entries:[{date, slot, recipeName, servings}] }`. Resolves `recipeName`→recipe; skips unresolvable / exact dupes. |
+| `coach-grocery.json` | `grocery` | Add shopping-list items (tagged COACH). `{ items:[{name, quantity?, unit?}] }`. Skips a coach item already on the list & unchecked. |
+| `coach-deals.json` | `deals` | **Replace** the Deals tab list. `{ updatedAt?, deals:[{store?, item, price?, note?, expires?}] }`. |
 
-**coach-mealplan.json** — inject a week's meal plan (recipes resolved by name):
-```json
-{
-  "type": "mealplan",
-  "entries": [
-    { "date": "2026-06-02", "slot": "dinner", "recipeName": "BBQ Strip Loin", "servings": 2 },
-    { "date": "2026-06-03", "slot": "dinner", "recipeName": "Chicken Bowl", "servings": 4 }
-  ]
-}
-```
+Full contract: **`HEALTH-CONCIERGE-ORCHESTRATOR-BRIEF.md`** (in the Health Concierge folder).
+Copy-paste templates: **`health-dashboard/coach-templates/`**.
+
+> The pantry is read-only for the coach (managed in-app). Groceries are also built in-app from the
+> meal plan minus pantry stock; `coach-grocery.json` is for extras the demand calc won't catch.
 
 ---
 

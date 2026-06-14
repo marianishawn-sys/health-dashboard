@@ -1,0 +1,14 @@
+{
+  "type": "recipes",
+  "recipes": [
+    {
+      "name": "BBQ Strip Loin",
+      "servings": 2,
+      "ingredients": [
+        { "itemName": "Strip loin", "quantity": 400, "unit": "g" },
+        { "itemName": "Extra virgin olive oil", "quantity": 20, "unit": "ml" }
+      ],
+      "instructions": "Season with salt. Grill 4 min per side, rest 5 min."
+    }
+  ]
+}

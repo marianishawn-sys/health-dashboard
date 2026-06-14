@@ -45,7 +45,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.12.0";
+    const VERSION = "v7.13.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -580,7 +580,8 @@
 
     // ───────────────────── COACH INGEST (M5) ─────────────────────
     // Drain-and-delete: reads coach-*.json files from Drive, ingests content, deletes each file.
-    // File types: coach-additions.json, coach-recipes.json, coach-mealplan.json
+    // File types: coach-additions.json (foods), coach-recipes.json, coach-mealplan.json,
+    //             coach-grocery.json (shopping list), coach-deals.json (Deals tab).
     // Returns { data, changed } — caller saves to Drive if changed === true.
     const ingestCoachFiles = async (parentFolderId, currentData) => {
       const rawFiles = await searchCoachFiles(parentFolderId);
@@ -669,6 +670,35 @@
                 recipeId, servings: e.servings || 2, source: "coach" });
             });
             data = { ...data, mealPlan: newPlan };
+            changed = true;
+          }
+
+          // ── coach-grocery.json ── add items to the shopping list (source:"coach") ──
+          if (content.type === "grocery") {
+            const list = [...(data.groceryList || [])];
+            (content.items || []).forEach(it => {
+              const nm = (it.name || "").trim();
+              if (!nm) return;
+              // skip if the same coach item is already on the list (not yet checked off)
+              if (list.find(g => g.source === "coach" && !g.done && (g.name||"").toLowerCase() === nm.toLowerCase())) return;
+              const ing = (data.ingredients || []).find(i => (i.name||"").toLowerCase().trim() === nm.toLowerCase());
+              list.push({ id: uid("g"), name: nm, itemId: ing ? ing.id : null,
+                quantity: it.quantity != null ? it.quantity : null, unit: it.unit || null,
+                source: "coach", done: false });
+            });
+            data = { ...data, groceryList: list };
+            changed = true;
+          }
+
+          // ── coach-deals.json ── replace the Deals tab content ──
+          if (content.type === "deals") {
+            data = { ...data, deals: {
+              items: (content.deals || []).filter(x => x && (x.item || x.name)).map(x => ({
+                store: x.store || "", item: x.item || x.name || "", price: x.price || "",
+                note: x.note || "", expires: x.expires || "",
+              })),
+              updatedAt: content.updatedAt || new Date().toISOString().slice(0,10),
+            }};
             changed = true;
           }
 
@@ -1123,7 +1153,7 @@
             <PantryTab data={data} setData={saveData} apiKey={apiKey} onMissingKey={() => setShowSettings(true)} />
           )}
           {tab === "deals" && (
-            <DealsTab />
+            <DealsTab data={data} />
           )}
 
           {/* Bottom nav */}
@@ -4320,7 +4350,9 @@ ${parseText}`;
     }
 
     // ───────────────────── DEALS TAB ─────────────────────
-    function DealsTab() {
+    function DealsTab({ data }) {
+      const deals = data && data.deals;
+      const items = (deals && deals.items) || [];
       return (
         <div style={{ padding:"14px 16px 24px" }}>
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:12 }}>
@@ -4338,10 +4370,27 @@ ${parseText}`;
             </div>
           </div>
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14 }}>
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:8 }}>ACTIVE DEALS</div>
-            <div style={{ fontSize:12, color:S.dim, lineHeight:1.6 }}>
-              Updated Thursdays after flyer drop. Ask your coach in chat to populate this section with the week's hits.
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>ACTIVE DEALS</div>
+              {deals && deals.updatedAt && <div style={{ fontSize:9, color:S.dimmer }}>updated {deals.updatedAt}</div>}
             </div>
+            {items.length === 0 ? (
+              <div style={{ fontSize:12, color:S.dim, lineHeight:1.6 }}>
+                No deals loaded. Ask your coach to drop a <span style={{ fontFamily:"'DM Mono',monospace", color:S.dimmer }}>coach-deals.json</span> with the week's hits.
+              </div>
+            ) : items.map((d, i) => (
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", gap:10, padding:"8px 0", borderBottom: i < items.length-1 ? "1px solid "+S.border : "none" }}>
+                <div style={{ minWidth:0, flex:1 }}>
+                  <div style={{ fontSize:13, color:S.text }}>{d.item}</div>
+                  {(d.store || d.note || d.expires) && (
+                    <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>
+                      {[d.store, d.note].filter(Boolean).join(" · ")}{d.expires ? (d.store||d.note ? " · " : "") + "until " + d.expires : ""}
+                    </div>
+                  )}
+                </div>
+                {d.price && <div style={{ fontSize:13, color:S.accent, fontWeight:600, whiteSpace:"nowrap" }}>{d.price}</div>}
+              </div>
+            ))}
           </div>
         </div>
       );

@@ -1,0 +1,15 @@
+{
+  "type": "additions",
+  "foods": [
+    {
+      "name": "Grass-Fed Beef Tallow",
+      "brand": "Epic",
+      "per100g": { "cal": 902, "protein": 0, "carbs": 0, "fat": 100, "fibre": 0 }
+    },
+    {
+      "name": "Plain Skyr (0% fat)",
+      "brand": "Siggi's",
+      "per100g": { "cal": 60, "protein": 11, "carbs": 4, "fat": 0, "fibre": 0 }
+    }
+  ]
+}
