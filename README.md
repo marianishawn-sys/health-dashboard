@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.11.1
+# Nutrition Concierge — v7.12.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.12.0 — Add to Diary from each recipe
+- Expanded recipe cards get an **ADD TO DIARY** panel: date picker, meal selector (Bre/Lun/Din/Sna), servings input, and a live "will log" macro preview.
+- `addRecipeToDiary` logs `perServing × servings` to `data.logs[date][meal]` (displayQty/displayUnit = "N servings"), saves immediately, shows a green confirmation toast. Only shown for recipes that have `perServing`.
 
 ### v7.11.1 — Pantry scan captures macros
 - The pantry-scan prompt only asked for name/category/quantity, so scanned items had **no per100g** (most of the pantry ended up macro-less). The prompt (single + bulk) now requires `per100g {cal,protein,carbs,fat,fibre}` plus optional `servingG`/`servingUnit` — read the Nutrition Facts panel if visible, else typical values. `max_tokens` 2000→4000.
