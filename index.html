@@ -26,9 +26,11 @@
     body { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Versions PINNED on purpose: an unpinned @babel/standalone auto-upgraded to 8.0.0
+       and broke the in-browser transform on every device at once (2026-06-16). Do not unpin. -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -45,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.13.0";
+    const VERSION = "v7.13.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
