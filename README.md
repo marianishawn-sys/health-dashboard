@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.13.0
+# Nutrition Concierge — v7.13.1
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.13.1 — HOTFIX: pin CDN versions (Babel 8 broke everything)
+- The head loaded `@babel/standalone` (and React) **unpinned**, so unpkg auto-served the just-released **Babel 8.0.0**, whose in-browser transform throws "Cannot use import statement outside a module" → React never mounts → **blank dark page on all devices at once**. No code change caused it.
+- Pinned to **react@18.3.1, react-dom@18.3.1, @babel/standalone@7.26.4**. **Never unpin** — an upstream release otherwise blanks the app with no warning.
 
 ### v7.13.0 — Coach can drive groceries + deals
 - Two new coach drop-box file types in `ingestCoachFiles`: **`coach-grocery.json`** (adds shopping-list items tagged `source:"coach"`, links to ingredient by exact name, dedupes unchecked coach items) and **`coach-deals.json`** (replaces the Deals tab "Active Deals" list with `{store,item,price,note,expires}` entries + `updatedAt`).
