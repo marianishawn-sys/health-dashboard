@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.13.1";
+    const VERSION = "v7.14.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -723,6 +723,16 @@
       fibre: round((per100g.fibre || 0) * grams / 100, 1),
     });
 
+    // grams represented by one unit of a pantry item (for macro scaling / stock decrement)
+    const gramsPerUnit = (unit, servingG) => {
+      const u = (unit || "").toLowerCase();
+      if (u === "g" || u === "ml") return 1;
+      if (u === "kg" || u === "l") return 1000;
+      if (u === "oz") return 28.35;
+      if (u === "lb") return 453.6;
+      return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
+    };
+
     const sumLogged = (logs, date, foods = []) => {
       const day = logs[date] || {};
       const foodMap = {};
@@ -999,9 +1009,26 @@
         const foods = upsertFood(updatedFood);
         const day = data.logs[selectedDate] || {};
         const meal = [...(day[slot] || []), entry];
+        // If this food is linked to a pantry item, decrement its stock by what was
+        // eaten — same behaviour as the Pantry tab's "Add to Diary". Pantry-sourced
+        // foods carry pantryItemId; older ones are detected by their "ing_"-prefixed id.
+        let pantry = data.pantry || [];
+        const linkedId = food.pantryItemId
+          || (typeof food.id === "string" && food.id.startsWith("ing_") ? food.id.slice(4) : null);
+        if (linkedId) {
+          const ing = (data.ingredients || []).find(i => i.id === linkedId);
+          const pe  = pantry.find(p => p.itemId === linkedId);
+          if (ing && pe && pe.trackingType === "count" && pe.quantity != null) {
+            const usedUnits = grams / gramsPerUnit(pe.unit || ing.defaultUnit, ing.servingG);
+            pantry = pantry.map(p => p.id === pe.id
+              ? { ...p, quantity: Math.max(0, round((p.quantity || 0) - usedUnits, 1)) }
+              : p);
+          }
+        }
         saveData({
           ...data,
           foods,
+          pantry,
           logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } },
         });
       };
@@ -1473,7 +1500,7 @@
         return {
           pantryFoods: matches
             .filter(ing => ing.per100g && ing.per100g.cal != null)
-            .map(ing => ({ id: "ing_" + ing.id, name: ing.name, brand: "", per100g: ing.per100g,
+            .map(ing => ({ id: "ing_" + ing.id, pantryItemId: ing.id, name: ing.name, brand: "", per100g: ing.per100g,
               servingG: ing.servingG, servingUnit: ing.servingUnit,
               refPortion: ing.servingG ? { grams: ing.servingG, label: "1 " + (ing.servingUnit || "serving") + " (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
               category: "pantry", source: "pantry", useCount: 0 })),
@@ -3681,6 +3708,8 @@ ${parseText}`;
       const [addQty, setAddQty]         = useState("");
       const [addUnit, setAddUnit]       = useState("portions");
       const [addPar, setAddPar]         = useState("");
+      const [addLookupLoading, setAddLookupLoading] = useState(false);
+      const [addMacros, setAddMacros]   = useState(null); // {per100g, servingG, servingUnit} | null
 
       const [editItemId, setEditItemId] = useState(null);
       const [editName, setEditName]     = useState("");
@@ -3770,16 +3799,6 @@ ${parseText}`;
         setDiaryDate(isoToday());
         setDiaryMeal("dinner");
         setEditItemId(item.id);
-      };
-
-      // grams represented by one unit of this pantry item (for macro scaling)
-      const gramsPerUnit = (unit, servingG) => {
-        const u = (unit || "").toLowerCase();
-        if (u === "g" || u === "ml") return 1;
-        if (u === "kg" || u === "l") return 1000;
-        if (u === "oz") return 28.35;
-        if (u === "lb") return 453.6;
-        return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
       };
 
       // Step 1: open the portion adjuster (carries the chosen date + meal)
@@ -3912,10 +3931,50 @@ ${parseText}`;
         setAddMsg(`Added ${names.length===1 ? names[0] : names.length+" items"} ✓ — scroll to find it in its category`);
       };
 
+      // Look up macros for the item being added: reuse anything we already know
+      // (food library / ingredients), else ask the AI. Fills the per-100g + serving size.
+      const lookupMacros = async () => {
+        const q = addName.trim();
+        if (!q) return;
+        const nl = q.toLowerCase();
+        const pool = [...(data.foods || []), ...(data.ingredients || [])].filter(x => x.per100g && x.per100g.cal != null);
+        const lib = pool.find(x => (x.name||"").trim().toLowerCase() === nl)
+                 || pool.find(x => (x.name||"").toLowerCase().includes(nl));
+        if (lib) {
+          setAddMacros({ per100g: lib.per100g, servingG: lib.servingG || null, servingUnit: lib.servingUnit || null });
+          return;
+        }
+        if (!apiKey) { onMissingKey(); return; }
+        setAddLookupLoading(true);
+        try {
+          const prompt = `Give nutrition for "${q}" per 100g, plus a typical single-serving size in grams and its unit name. Return ONLY valid JSON, no other text:\n{"per100g":{"cal":number,"protein":number,"carbs":number,"fat":number,"fibre":number},"servingG":number,"servingUnit":"string"}`;
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method:"POST",
+            headers:{ "Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true" },
+            body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:300, messages:[{role:"user",content:prompt}] }),
+          });
+          const j = await res.json();
+          if (j.error) throw new Error(j.error.message || "lookup failed");
+          const parsed = JSON.parse(j.content[0].text.match(/\{[\s\S]*\}/)[0]);
+          const p = parsed.per100g || {};
+          setAddMacros({
+            per100g: { cal:p.cal||0, protein:p.protein||0, carbs:p.carbs||0, fat:p.fat||0, fibre:p.fibre||0 },
+            servingG: parsed.servingG > 0 ? Math.round(parsed.servingG) : null,
+            servingUnit: typeof parsed.servingUnit === "string" && parsed.servingUnit.trim() ? parsed.servingUnit.trim().toLowerCase() : null,
+          });
+        } catch(e) {
+          setAddMsg("Macro lookup failed — add it and edit macros later.");
+        }
+        setAddLookupLoading(false);
+      };
+
       const handleManualAdd = () => {
         if (!addName.trim()) return;
         const ingId = uid("ing");
-        const newIng = { id:ingId, name:addName.trim(), defaultUnit:addUnit, category:addCat };
+        const newIng = { id:ingId, name:addName.trim(), defaultUnit:addUnit, category:addCat,
+          ...(addMacros && addMacros.per100g ? { per100g: addMacros.per100g } : {}),
+          ...(addMacros && addMacros.servingG ? { servingG: addMacros.servingG } : {}),
+          ...(addMacros && addMacros.servingUnit ? { servingUnit: addMacros.servingUnit } : {}) };
         const qty = parseFloat(addQty);
         const par = parseFloat(addPar);
         const newItem = { id:uid("pan"), itemId:ingId, trackingType:addTracking,
@@ -3925,7 +3984,7 @@ ${parseText}`;
           expiryNA:addCat==="freezer"||addCat==="pantry" };
         const nm = addName.trim();
         setData({ ...data, ingredients:[...ingredients,newIng], pantry:[...pantry,newItem] }, true);  // save now
-        setAddName(""); setAddQty(""); setAddPar(""); setAddUnit("portions"); setShowAdd(false);
+        setAddName(""); setAddQty(""); setAddPar(""); setAddUnit("portions"); setAddMacros(null); setShowAdd(false);
         setAddMsg(`Added ${nm} ✓ — scroll to find it in ${addCat.toUpperCase()}`);
       };
 
@@ -3979,7 +4038,7 @@ ${parseText}`;
           {/* Manual add form */}
           {showAdd && (
             <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:12, marginBottom:12 }}>
-              <input type="text" placeholder="Item name *" value={addName} onChange={e=>setAddName(e.target.value)} autoFocus
+              <input type="text" placeholder="Item name *" value={addName} onChange={e=>{setAddName(e.target.value); setAddMacros(null);}} autoFocus
                 style={{ width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", marginBottom:8 }} />
               <div style={{ display:"flex", gap:5, marginBottom:7 }}>
                 {["freezer","fridge","pantry"].map(c => abtn(addCat===c, c.toUpperCase(), ()=>setAddCat(c)))}
@@ -3996,8 +4055,18 @@ ${parseText}`;
                   ))}
                 </div>
               )}
+              <button onClick={lookupMacros} disabled={!addName.trim()||addLookupLoading}
+                style={{ width:"100%", background:S.panel2, border:`1px solid ${S.accent}55`, color:addName.trim()?S.accent:S.dim, borderRadius:8, padding:"9px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:addName.trim()&&!addLookupLoading?"pointer":"not-allowed", marginBottom:7 }}>
+                {addLookupLoading ? "LOOKING UP…" : "🔎 LOOK UP MACROS"}
+              </button>
+              {addMacros && addMacros.per100g && (
+                <div style={{ background:`${S.green}14`, border:`1px solid ${S.green}44`, color:S.green, borderRadius:8, padding:"7px 10px", marginBottom:7, fontSize:11, fontWeight:600, lineHeight:1.4 }}>
+                  ✓ {addMacros.per100g.cal} cal · {addMacros.per100g.protein}P / {addMacros.per100g.carbs}C / {addMacros.per100g.fat}F / {addMacros.per100g.fibre} fib <span style={{color:S.dim}}>per 100g</span>
+                  {addMacros.servingG ? <span style={{color:S.dim}}> · serving {addMacros.servingG}g{addMacros.servingUnit ? " ("+addMacros.servingUnit+")" : ""}</span> : null}
+                </div>
+              )}
               <button onClick={handleManualAdd} disabled={!addName.trim()} style={{ width:"100%", background:addName.trim()?S.accent:S.panel2, color:addName.trim()?"#0a0c0f":S.dim, border:"none", borderRadius:8, padding:"10px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:addName.trim()?"pointer":"not-allowed" }}>
-                ADD TO PANTRY
+                ADD TO PANTRY{addMacros && addMacros.per100g ? " (WITH MACROS)" : ""}
               </button>
             </div>
           )}
