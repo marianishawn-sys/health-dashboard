@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.13.1
+# Nutrition Concierge — v7.14.1
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,17 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.14.1 — Scanned items use the label's serving size (not 100g)
+- When a nutrition label/barcode is scanned, the label's **serving size** becomes the default portion in both the pantry and the Today food list.
+- **MealScan** (Today tab): prompt reads `servingG` + `servingUnit` from a visible label; the food it builds defaults `PortionAdjust` to "1 serving (Xg)" instead of the plate-estimate/100g. No label → unchanged (visible-grams estimate).
+- **PantryScan**: `servingG` is now always required and explicitly read from the Nutrition Facts serving size (e.g. "Per 40g" → 40), not left null.
+- `addFoodToPantry` carries `servingUnit` through when a scanned food is added.
+- **Data sweep (2026-06-23):** all 89 pantry items + 3 loggable library ingredients backfilled with real serving sizes (count units like apple/patty/drumstick where natural); fixed 3 broken servings (grated Grana Padano 1064g→5g, coleslaw 400→85, pickles 500→30). Then a **curated macro backfill** gave 34 common recipe ingredients real macros + servings (sour cream, heavy cream, tomato paste, ghee, kidney beans, pecans, chia, etc.) — searchable foods went ~90→124. The remaining ~477 macro-less recipe ingredients (duplicates + junk fragments) were left invisible-in-search on purpose. Backups: `dashboard-data.backup-2026-06-23T*.json` in the Health Concierge folder.
+
+### v7.14.0 — Pantry decrements on diary log + macro lookup on manual add
+- Logging a **pantry-sourced food from the Today tab** now decrements that pantry item's stock (count-tracked items), matching the Pantry tab's "Add to Diary". Pantry-derived foods carry `pantryItemId`; older logged copies are detected by their `ing_`-prefixed id. `gramsPerUnit` hoisted to module scope (shared by `PantryTab` + `useFood`).
+- Manual **"Add to pantry"** has a **🔎 LOOK UP MACROS** button — reuses macros from the food library/ingredients if known, else an AI lookup — and saves `per100g` + serving size onto the new item.
 
 ### v7.13.1 — HOTFIX: pin CDN versions (Babel 8 broke everything)
 - The head loaded `@babel/standalone` (and React) **unpinned**, so unpkg auto-served the just-released **Babel 8.0.0**, whose in-browser transform throws "Cannot use import statement outside a module" → React never mounts → **blank dark page on all devices at once**. No code change caused it.
