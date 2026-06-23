@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.14.0";
+    const VERSION = "v7.14.1";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1051,9 +1051,10 @@
           const nameKey = food.name.trim().toLowerCase();
           let ing = newIngs.find(i => i.name.trim().toLowerCase() === nameKey);
           if (!ing) {
-            const servingG = Math.round((food.refPortion && food.refPortion.grams) || food.estimatedGrams || 100);
+            const servingG = Math.round(food.servingG || (food.refPortion && food.refPortion.grams) || food.estimatedGrams || 100);
             ing = { id: uid("ing"), name: food.name.trim(), defaultUnit: "portions",
-              category: "fridge", per100g: food.per100g, servingG };
+              category: "fridge", per100g: food.per100g, servingG,
+              ...(food.servingUnit ? { servingUnit: (food.servingUnit || "").trim().toLowerCase() } : {}) };
             newIngs.push(ing);
           } else if (!ing.per100g && food.per100g) {
             newIngs = newIngs.map(i => i.id === ing.id ? { ...i, per100g: food.per100g } : i);
@@ -2318,7 +2319,7 @@
         try {
           const base64 = dataUrl.split(",")[1];
           const mimeType = dataUrl.match(/data:(.*?);/)[1];
-          const prompt = "Identify the food(s) visible in this image. For each distinct food, provide: name (specific, e.g. 'Grilled chicken thigh' not 'Chicken'), estimated weight in grams visible in the photo, and macros per 100g (calories, protein, carbs, fat, fibre). If a nutrition label is visible, use those exact values and back-calculate per 100g. If a barcode is visible, identify the product if possible. Return ONLY valid JSON in this exact shape, no other text or markdown: {\"foods\":[{\"name\":\"string\",\"brand\":\"string or empty\",\"estimatedGrams\":number,\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"confidence\":\"HIGH|MEDIUM|LOW\"}]}";
+          const prompt = "Identify the food(s) visible in this image. For each distinct food, provide: name (specific, e.g. 'Grilled chicken thigh' not 'Chicken'), estimated weight in grams visible in the photo, and macros per 100g (calories, protein, carbs, fat, fibre). If a nutrition label is visible, use those exact values and back-calculate per 100g, AND read the label's serving size: set servingG to the serving size in grams (e.g. 'Per 1 bar (40g)' or 'Serving size 40 g' → 40) and servingUnit to the household unit if the label states one (bar, container, scoop, slice, piece, egg…), else empty. If NO nutrition label is visible, set servingG to null and servingUnit to empty. If a barcode is visible, identify the product if possible. Return ONLY valid JSON in this exact shape, no other text or markdown: {\"foods\":[{\"name\":\"string\",\"brand\":\"string or empty\",\"estimatedGrams\":number,\"servingG\":number or null,\"servingUnit\":\"string or empty\",\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"confidence\":\"HIGH|MEDIUM|LOW\"}]}";
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -2417,16 +2418,25 @@
       const confirmAll = () => {
         const selected = results.filter(r => r.selected);
         if (selected.length === 0) return;
-        const toFood = r => ({
-          id: uid("f"),
-          name: r.name,
-          brand: r.brand || "",
-          refPortion: { grams: r.estimatedGrams, label: r.estimatedGrams + "g (scanned)" },
-          per100g: r.per100g,
-          category: "scan",
-          tags: [],
-          source: "ai_scan",
-        });
+        const toFood = r => {
+          // If the label gave a serving size, make THAT the default portion (not 100g
+          // and not the plate-estimate). Otherwise fall back to the visible-grams estimate.
+          const sg = r.servingG > 0 ? Math.round(r.servingG) : null;
+          const su = (r.servingUnit || "").trim().toLowerCase();
+          return {
+            id: uid("f"),
+            name: r.name,
+            brand: r.brand || "",
+            ...(sg
+              ? { servingG: sg, ...(su ? { servingUnit: su } : {}),
+                  refPortion: { grams: sg, label: "1 " + (su || "serving") + " (" + sg + "g)" } }
+              : { refPortion: { grams: r.estimatedGrams, label: r.estimatedGrams + "g (scanned)" } }),
+            per100g: r.per100g,
+            category: "scan",
+            tags: [],
+            source: "ai_scan",
+          };
+        };
         if (selected.length === 1) {
           onResult(toFood(selected[0]));
         } else {
@@ -4283,10 +4293,10 @@ ${parseText}`;
         try {
           const base64 = dataUrl.split(",")[1];
           const mimeType = dataUrl.match(/data:(.*?);/)[1];
-          const shape = "{\"name\":\"specific name\",\"brand\":\"\",\"category\":\"FREEZER|FRIDGE|PANTRY\",\"quantity\":\"e.g. 500g or 1L\",\"expiry\":\"YYYY-MM-DD if visible else empty\",\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"servingG\":number_or_null,\"servingUnit\":\"singular count unit like egg/stick/slice if naturally counted, else empty\",\"confidence\":\"HIGH|MEDIUM|LOW\"}";
+          const shape = "{\"name\":\"specific name\",\"brand\":\"\",\"category\":\"FREEZER|FRIDGE|PANTRY\",\"quantity\":\"e.g. 500g or 1L\",\"expiry\":\"YYYY-MM-DD if visible else empty\",\"per100g\":{\"cal\":number,\"protein\":number,\"carbs\":number,\"fat\":number,\"fibre\":number},\"servingG\":serving_size_in_grams,\"servingUnit\":\"household serving unit if any (bar/container/scoop/slice/stick/egg…), else empty\",\"confidence\":\"HIGH|MEDIUM|LOW\"}";
           const prompt = mode === "single"
-            ? "Identify the single product in this image. Read the label/package. For per100g nutrition, use the Nutrition Facts panel if visible; otherwise give typical values for this food. ALWAYS include per100g. Return ONLY valid JSON: {\"items\":[" + shape + "]}"
-            : "Identify EVERY visible food item in this photo of a freezer/fridge/pantry shelf. Be exhaustive. For each item ALWAYS include per100g nutrition (cal, protein, carbs, fat, fibre) — read the label if legible, else give typical values for that food. Return ONLY valid JSON: {\"items\":[" + shape + "]}";
+            ? "Identify the single product in this image. Read the label/package. For per100g nutrition, use the Nutrition Facts panel if visible; otherwise give typical values for this food. ALWAYS include per100g. For servingG, read the serving size from the Nutrition Facts panel and convert to grams (e.g. 'Serving size 40 g' or 'Per 1 bar (40g)' → 40); if no label, estimate a typical single serving in grams. ALWAYS include servingG. Return ONLY valid JSON: {\"items\":[" + shape + "]}"
+            : "Identify EVERY visible food item in this photo of a freezer/fridge/pantry shelf. Be exhaustive. For each item ALWAYS include per100g nutrition (cal, protein, carbs, fat, fibre) — read the label if legible, else give typical values for that food. Also include servingG = the label serving size in grams if legible, else a typical single serving in grams. Return ONLY valid JSON: {\"items\":[" + shape + "]}";
 
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
