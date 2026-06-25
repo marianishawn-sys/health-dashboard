@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop GPU miner at off-peak window close
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop gpu-miner.service
