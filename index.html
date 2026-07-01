@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.15.0";
+    const VERSION = "v7.16.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -731,6 +731,36 @@
       if (u === "oz") return 28.35;
       if (u === "lb") return 453.6;
       return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
+    };
+
+    // Add purchased stock to the pantry: link an existing ingredient (by id or exact
+    // name) or create one, then increment (or create) its count-tracked pantry entry.
+    // Returns { ingredients, pantry }.
+    const stockPantry = (data, { name, itemId, quantity, unit, category }) => {
+      const ings = [...(data.ingredients || [])];
+      const pantry = [...(data.pantry || [])];
+      const nm = (name || "").trim();
+      let ing = itemId ? ings.find(i => i.id === itemId) : null;
+      if (!ing && nm) ing = ings.find(i => (i.name || "").trim().toLowerCase() === nm.toLowerCase());
+      if (!ing) {
+        ing = { id: uid("ing"), name: nm || "Item", defaultUnit: unit || "portions", category: category || "fridge" };
+        ings.push(ing);
+      }
+      const qty = (quantity != null && !isNaN(quantity)) ? quantity : 1;
+      const u = unit || ing.defaultUnit || "portions";
+      const cat = ing.category || category || "fridge";
+      const idx = pantry.findIndex(p => p.itemId === ing.id);
+      if (idx >= 0) {
+        const p = pantry[idx];
+        pantry[idx] = p.trackingType === "count"
+          ? { ...p, quantity: round((p.quantity || 0) + qty, 2) }
+          : { ...p, state: "have" };
+      } else {
+        pantry.push({ id: uid("pan"), itemId: ing.id, trackingType: "count",
+          quantity: qty, unit: u, state: null, parLevel: null, expiry: null,
+          expiryNA: cat !== "fridge" });
+      }
+      return { ingredients: ings, pantry };
     };
 
     const sumLogged = (logs, date, foods = []) => {
@@ -3567,6 +3597,10 @@ ${parseText}`;
       const [newItem, setNewItem] = useState("");
       const [newQty, setNewQty]   = useState("");
       const [newUnit, setNewUnit] = useState("");
+      const [buy, setBuy]         = useState(null); // grocery item being marked purchased | null
+      const [buyQty, setBuyQty]   = useState("");
+      const [buyUnit, setBuyUnit] = useState("");
+      const [buyCat, setBuyCat]   = useState("fridge");
 
       const groceryList = data.groceryList || [];
 
@@ -3599,6 +3633,29 @@ ${parseText}`;
         setData({ ...data, groceryList: next });
       };
       const remove = (id) => setData({ ...data, groceryList: groceryList.filter(i => i.id !== id) });
+
+      // Checking a pending item = "I bought this" → confirm qty, then stock the pantry.
+      const openPurchase = (item) => {
+        const ing = (data.ingredients || []).find(i => i.id === item.itemId);
+        setBuy(item);
+        setBuyQty(item.quantity != null ? String(item.quantity) : "1");
+        setBuyUnit(item.unit || (ing && ing.defaultUnit) || "portions");
+        setBuyCat((ing && ing.category) || "fridge");
+      };
+      const confirmPurchase = (toPantry) => {
+        if (!buy) return;
+        if (toPantry) {
+          const q = parseFloat(buyQty);
+          const { ingredients, pantry } = stockPantry(data, {
+            name: buy.name, itemId: buy.itemId,
+            quantity: isNaN(q) ? 1 : q, unit: buyUnit.trim() || null, category: buyCat });
+          setData({ ...data, ingredients, pantry,
+            groceryList: groceryList.filter(i => i.id !== buy.id) }, true);
+        } else {
+          setData({ ...data, groceryList: groceryList.map(i => i.id === buy.id ? { ...i, done: true } : i) });
+        }
+        setBuy(null);
+      };
 
       const addItem = () => {
         if (!newItem.trim()) return;
@@ -3694,7 +3751,7 @@ ${parseText}`;
               {pending.map(item => (
                 <div key={item.id} style={{ display:"flex", alignItems:"center", background:S.panel,
                   border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6 }}>
-                  <button onClick={() => toggle(item.id)}
+                  <button onClick={() => openPurchase(item)}
                     style={{ width:22, height:22, borderRadius:6, background:"transparent",
                       border:"2px solid "+S.dim, marginRight:12, color:"#0a0c0f", fontSize:12,
                       fontWeight:700, cursor:"pointer", padding:0, flexShrink:0 }} />
@@ -3756,6 +3813,36 @@ ${parseText}`;
                 fontWeight:600, letterSpacing:1, cursor:"pointer", marginTop:6 }}>
               DONE SHOPPING · CLEAR {done.length} ITEM{done.length !== 1 ? "S" : ""}
             </button>
+          )}
+
+          {/* Purchased → stock pantry popup */}
+          {buy && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:100, display:"flex", alignItems:"flex-end" }} onClick={() => setBuy(null)}>
+              <div className="slideUp" style={{ background:S.bg, width:"100%", borderTopLeftRadius:18, borderTopRightRadius:18, padding:"18px 18px 26px", borderTop:"1px solid "+S.border }} onClick={e => e.stopPropagation()}>
+                <div style={{ width:40, height:4, background:S.dimmer, borderRadius:2, margin:"0 auto 14px" }} />
+                <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:4 }}>PURCHASED</div>
+                <div style={{ fontSize:17, fontWeight:500, color:S.text, marginBottom:16 }}>{buy.name}</div>
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>QUANTITY BOUGHT</div>
+                <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                  <input type="text" inputMode="decimal" value={buyQty} onChange={e => setBuyQty(e.target.value)} placeholder="qty" autoFocus
+                    style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"12px", color:S.text, fontSize:18, fontWeight:600, textAlign:"center", outline:"none" }} />
+                  <input type="text" value={buyUnit} onChange={e => setBuyUnit(e.target.value)} placeholder="unit"
+                    style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"12px", color:S.text, fontSize:15, textAlign:"center", outline:"none" }} />
+                </div>
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>STORE IN</div>
+                <div style={{ display:"flex", gap:6, marginBottom:18 }}>
+                  {["freezer","fridge","pantry"].map(c => (
+                    <button key={c} onClick={() => setBuyCat(c)} style={{ flex:1, padding:"10px 4px", borderRadius:8, border:`1px solid ${buyCat===c?S.accent:S.border}`, background:buyCat===c?`${S.accent}22`:S.panel2, color:buyCat===c?S.accent:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>{c.toUpperCase()}</button>
+                  ))}
+                </div>
+                <button onClick={() => confirmPurchase(true)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer", marginBottom:8 }}>
+                  ✓ ADD TO PANTRY
+                </button>
+                <button onClick={() => confirmPurchase(false)} style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"8px", fontSize:11, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>
+                  Just check it off (don't stock)
+                </button>
+              </div>
+            </div>
           )}
         </div>
       );
@@ -3955,6 +4042,7 @@ ${parseText}`;
       const handleScanResult = (rawItems) => {
         const newIngs = [...ingredients];
         const newPantry = [...pantry];
+        const touched = [];
         rawItems.forEach(raw => {
           const nl = (raw.name||"").toLowerCase().trim();
           // Exact (case-insensitive) match only. The old fuzzy match collided on
@@ -3983,6 +4071,7 @@ ${parseText}`;
               ing = newIngs[idx];
             }
           }
+          touched.push(itemId);
           const m = String(raw.quantity||"").match(/^(\d+\.?\d*)\s*([a-zA-Z]+)?/);
           const qty  = m ? parseFloat(m[1]) : null;
           const unit = (m&&m[2]) ? m[2] : ing.defaultUnit;
@@ -3992,10 +4081,16 @@ ${parseText}`;
           else newPantry.push({ id:uid("pan"), itemId, trackingType:qty!=null?"count":"state",
             quantity:qty, unit, state:qty!=null?null:"have", parLevel:par, expiry:raw.expiry||null, expiryNA:!raw.expiry });
         });
-        setData({ ...data, ingredients:newIngs, pantry:newPantry }, true);  // save now
+        // A scan means "I bought these" → clear matching items off the grocery list.
+        const idSet = new Set(touched);
+        const nameSet = new Set(rawItems.map(r => (r.name||"").trim().toLowerCase()).filter(Boolean));
+        const gl = data.groceryList || [];
+        const newGrocery = gl.filter(g => !((g.itemId && idSet.has(g.itemId)) || nameSet.has((g.name||"").trim().toLowerCase())));
+        const cleared = gl.length - newGrocery.length;
+        setData({ ...data, ingredients:newIngs, pantry:newPantry, groceryList:newGrocery }, true);  // save now
         setScanMode(null);
         const names = rawItems.map(r => r.name).filter(Boolean);
-        setAddMsg(`Added ${names.length===1 ? names[0] : names.length+" items"} ✓ — scroll to find it in its category`);
+        setAddMsg(`Added ${names.length===1 ? names[0] : names.length+" items"} ✓${cleared>0 ? ` · cleared ${cleared} off grocery list` : ""} — scroll to find it in its category`);
       };
 
       // Look up macros for the item being added: reuse anything we already know
