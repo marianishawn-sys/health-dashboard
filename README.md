@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.14.1
+# Nutrition Concierge — v7.16.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,14 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.16.0 — Grocery list ↔ pantry linked (purchased → stock, scan → clear)
+- **Check off a grocery item** → a **PURCHASED** popup (quantity + unit + freezer/fridge/pantry). **✓ ADD TO PANTRY** creates or **increments** the pantry item (real restock) and removes it from the grocery list; **"just check off"** moves it to DONE as before.
+- **AI pantry scan** (single + bulk) now also **clears matching items off the grocery list** (matched by ingredient id or exact name); the toast reports the count.
+- Links by the ingredient the grocery item already points to (LOW/COACH/PLAN items carry it), so checking a "low" item bumps that exact pantry count and clears it from NEEDS RESTOCKING. New module helper `stockPantry()`.
+
+### v7.15.0 — Pull-to-refresh
+- Installed PWAs disable Chrome's native pull-to-refresh, so the app implements it: **long swipe down from the top** (when signed in) re-runs `loadData()` — re-pulling `dashboard-data.json`, re-ingesting coach files, syncing the API key — with **no page reload**, so no re-login and the UI stays put. Non-passive touch listeners armed only at scroll-top with no modal open; resisted drag + animated spinner. (A new app *version* still needs a full reopen/hard-refresh.)
 
 ### v7.14.1 — Scanned items use the label's serving size (not 100g)
 - When a nutrition label/barcode is scanned, the label's **serving size** becomes the default portion in both the pantry and the Today food list.
