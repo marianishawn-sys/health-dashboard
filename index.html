@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.16.0";
+    const VERSION = "v7.17.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -733,18 +733,45 @@
       return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
     };
 
-    // Add purchased stock to the pantry: link an existing ingredient (by id or exact
-    // name) or create one, then increment (or create) its count-tracked pantry entry.
+    // AI per-100g + serving lookup for a food name → {per100g, servingG, servingUnit} (throws on failure).
+    async function aiLookupMacros(apiKey, query) {
+      const prompt = `Give nutrition for "${query}" per 100g, plus a typical single-serving size in grams and its unit name. Return ONLY valid JSON, no other text:\n{"per100g":{"cal":number,"protein":number,"carbs":number,"fat":number,"fibre":number},"servingG":number,"servingUnit":"string"}`;
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true" },
+        body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:300, messages:[{role:"user",content:prompt}] }),
+      });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error.message || "lookup failed");
+      const parsed = JSON.parse(j.content[0].text.match(/\{[\s\S]*\}/)[0]);
+      const p = parsed.per100g || {};
+      return {
+        per100g: { cal:p.cal||0, protein:p.protein||0, carbs:p.carbs||0, fat:p.fat||0, fibre:p.fibre||0 },
+        servingG: parsed.servingG > 0 ? Math.round(parsed.servingG) : null,
+        servingUnit: (typeof parsed.servingUnit === "string" && parsed.servingUnit.trim()) ? parsed.servingUnit.trim().toLowerCase() : null,
+      };
+    }
+
+    // Add purchased stock to the pantry: link an existing ingredient (by id, exact, or
+    // normalized name — so it doesn't duplicate) or create one, then increment (or
+    // create) its count pantry entry. Attaches macros to a new/macro-less ingredient.
     // Returns { ingredients, pantry }.
-    const stockPantry = (data, { name, itemId, quantity, unit, category }) => {
+    const stockPantry = (data, { name, itemId, quantity, unit, category, per100g, servingG, servingUnit }) => {
       const ings = [...(data.ingredients || [])];
       const pantry = [...(data.pantry || [])];
       const nm = (name || "").trim();
+      const norm = s => (s || "").toLowerCase().trim().replace(/\s+/g, " ").replace(/s$/, "");
       let ing = itemId ? ings.find(i => i.id === itemId) : null;
       if (!ing && nm) ing = ings.find(i => (i.name || "").trim().toLowerCase() === nm.toLowerCase());
+      if (!ing && nm) ing = ings.find(i => norm(i.name) === norm(nm));
       if (!ing) {
-        ing = { id: uid("ing"), name: nm || "Item", defaultUnit: unit || "portions", category: category || "fridge" };
+        ing = { id: uid("ing"), name: nm || "Item", defaultUnit: unit || "portions", category: category || "fridge",
+          ...(per100g ? { per100g } : {}), ...(servingG ? { servingG } : {}), ...(servingUnit ? { servingUnit } : {}) };
         ings.push(ing);
+      } else if (per100g && (!ing.per100g || ing.per100g.cal == null)) {
+        const i2 = ings.findIndex(i => i.id === ing.id);
+        ings[i2] = { ...ing, per100g, ...(servingG ? { servingG } : {}), ...(servingUnit && !ing.servingUnit ? { servingUnit } : {}) };
+        ing = ings[i2];
       }
       const qty = (quantity != null && !isNaN(quantity)) ? quantity : 1;
       const u = unit || ing.defaultUnit || "portions";
@@ -1261,7 +1288,7 @@
               onEditEntry={(entry, slot) => setEditEntry({ entry, slot })} />
           )}
           {tab === "grocery" && (
-            <GroceryTab data={data} setData={saveData} />
+            <GroceryTab data={data} setData={saveData} apiKey={apiKey} />
           )}
           {tab === "recipes" && (
             <RecipesTab data={data} setData={saveData} apiKey={apiKey} onMissingKey={() => setShowSettings(true)} />
@@ -3593,7 +3620,7 @@ ${parseText}`;
     }
 
     // ───────────────────── GROCERY TAB v7 M2 ─────────────────────
-    function GroceryTab({ data, setData }) {
+    function GroceryTab({ data, setData, apiKey }) {
       const [newItem, setNewItem] = useState("");
       const [newQty, setNewQty]   = useState("");
       const [newUnit, setNewUnit] = useState("");
@@ -3601,6 +3628,7 @@ ${parseText}`;
       const [buyQty, setBuyQty]   = useState("");
       const [buyUnit, setBuyUnit] = useState("");
       const [buyCat, setBuyCat]   = useState("fridge");
+      const [buying, setBuying]   = useState(false);
 
       const groceryList = data.groceryList || [];
 
@@ -3642,19 +3670,29 @@ ${parseText}`;
         setBuyUnit(item.unit || (ing && ing.defaultUnit) || "portions");
         setBuyCat((ing && ing.category) || "fridge");
       };
-      const confirmPurchase = (toPantry) => {
+      const confirmPurchase = async (toPantry) => {
         if (!buy) return;
-        if (toPantry) {
-          const q = parseFloat(buyQty);
-          const { ingredients, pantry } = stockPantry(data, {
-            name: buy.name, itemId: buy.itemId,
-            quantity: isNaN(q) ? 1 : q, unit: buyUnit.trim() || null, category: buyCat });
-          setData({ ...data, ingredients, pantry,
-            groceryList: groceryList.filter(i => i.id !== buy.id) }, true);
-        } else {
+        if (!toPantry) {
           setData({ ...data, groceryList: groceryList.map(i => i.id === buy.id ? { ...i, done: true } : i) });
+          setBuy(null); return;
         }
-        setBuy(null);
+        setBuying(true);
+        const q = parseFloat(buyQty);
+        // Pull macros so the pantry item is loggable: reuse known macros, else AI lookup.
+        const nm = (buy.name || "").trim().toLowerCase();
+        const norm = s => (s || "").toLowerCase().trim().replace(/\s+/g, " ").replace(/s$/, "");
+        const pool = [...(data.ingredients || []), ...(data.foods || [])].filter(x => x.per100g && x.per100g.cal != null);
+        const known = (buy.itemId && pool.find(x => x.id === buy.itemId))
+                   || pool.find(x => (x.name || "").trim().toLowerCase() === nm)
+                   || pool.find(x => norm(x.name) === norm(buy.name));
+        let macros = known ? { per100g: known.per100g, servingG: known.servingG, servingUnit: known.servingUnit } : null;
+        if (!macros && apiKey) { try { macros = await aiLookupMacros(apiKey, buy.name); } catch (e) {} }
+        const { ingredients, pantry } = stockPantry(data, {
+          name: buy.name, itemId: buy.itemId, quantity: isNaN(q) ? 1 : q,
+          unit: buyUnit.trim() || null, category: buyCat,
+          per100g: macros && macros.per100g, servingG: macros && macros.servingG, servingUnit: macros && macros.servingUnit });
+        setData({ ...data, ingredients, pantry, groceryList: groceryList.filter(i => i.id !== buy.id) }, true);
+        setBuying(false); setBuy(null);
       };
 
       const addItem = () => {
@@ -3835,10 +3873,10 @@ ${parseText}`;
                     <button key={c} onClick={() => setBuyCat(c)} style={{ flex:1, padding:"10px 4px", borderRadius:8, border:`1px solid ${buyCat===c?S.accent:S.border}`, background:buyCat===c?`${S.accent}22`:S.panel2, color:buyCat===c?S.accent:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>{c.toUpperCase()}</button>
                   ))}
                 </div>
-                <button onClick={() => confirmPurchase(true)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer", marginBottom:8 }}>
-                  ✓ ADD TO PANTRY
+                <button onClick={() => confirmPurchase(true)} disabled={buying} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:buying?"default":"pointer", opacity:buying?0.7:1, marginBottom:8 }}>
+                  {buying ? "STOCKING…" : "✓ ADD TO PANTRY"}
                 </button>
-                <button onClick={() => confirmPurchase(false)} style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"8px", fontSize:11, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>
+                <button onClick={() => confirmPurchase(false)} disabled={buying} style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"8px", fontSize:11, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>
                   Just check it off (don't stock)
                 </button>
               </div>
@@ -4159,8 +4197,13 @@ ${parseText}`;
       const grouped = useMemo(() => {
         const g = { freezer:[], fridge:[], pantry:[] };
         displayPantry.forEach(p => { const c=(getIng(p.itemId).category||"pantry"); (g[c]||(g[c]=[])).push(p); });
+        const byName = (a,b) => (getIng(a.itemId).name||"").toLowerCase().localeCompare((getIng(b.itemId).name||"").toLowerCase());
+        const ord = { red:0, yellow:1, green:2, neutral:3 };
+        Object.keys(g).forEach(k => g[k].sort(showFlagged
+          ? (a,b) => ((ord[getStatus(a)]??3)-(ord[getStatus(b)]??3)) || byName(a,b)  // flagged first, then A–Z
+          : byName));                                                                 // default: alphabetical
         return g;
-      }, [displayPantry, ingredients]);
+      }, [displayPantry, ingredients, showFlagged]);
 
       const CAT_LABEL = { freezer:"❄️ FREEZER", fridge:"🧊 FRIDGE", pantry:"🫙 PANTRY" };
       const abtn = (active, lbl, onClick) => (
