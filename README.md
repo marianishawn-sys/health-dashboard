@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.18.0
+# Nutrition Concierge — v7.19.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.19.0 — Dismiss (✕) restock suggestions + data cleanup
+- **NEEDS RESTOCKING rows have an ✕** to dismiss an item (sets the pantry item's `neverFlag` → stops flagging it low/out/expiring). Reversible from the item's edit screen via a **"Restocking alerts ON/OFF"** toggle.
+- **Data (2026-07-01):** backfilled macros + servings for 13 pantry foods that were missing them (onions, carrots, bananas, tomatoes, cherries, rapini, green onions, Oikos Pro yogurt, salsa, cumin, paprika ×2, San Pellegrino) — Band-aids & dishwasher rinse aid left macro-less on purpose (non-food). Merged the duplicate **Cucumber** pantry entry (qty folded together). Backup: `dashboard-data.backup-2026-07-01T*.json`.
 
 ### v7.18.0 — Grocery add links to existing pantry items
 - Manual grocery add now shows **pantry autocomplete**: as you type, items you already stock appear ("IN YOUR PANTRY — TAP TO LINK") with their category + current qty. Tapping one adds a grocery item **linked by `itemId`**, so checking it off later updates that exact pantry item (no duplicate, macros already present). Typing an exact stocked name + ADD links it automatically too.
