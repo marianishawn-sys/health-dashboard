@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.18.0";
+    const VERSION = "v7.19.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -3732,6 +3732,12 @@ ${parseText}`;
         }]});
       };
 
+      // Dismiss a restock suggestion → stop flagging this pantry item. Reversible via
+      // the pantry item's edit screen ("Restocking alerts").
+      const dismissLow = (lowItem) => {
+        setData({ ...data, pantry: (data.pantry || []).map(p => p.id === lowItem.id ? { ...p, neverFlag: true } : p) });
+      };
+
       const doneShopping = () => {
         if (!confirm("Clear all checked items?")) return;
         setData({ ...data, groceryList: groceryList.filter(i => !i.done) });
@@ -3815,6 +3821,8 @@ ${parseText}`;
                       borderRadius:6, padding:"3px 8px", fontSize:10, cursor:"pointer", letterSpacing:0.5 }}>
                     + LIST
                   </button>
+                  <button onClick={() => dismissLow(item)} title="Remove from restocking"
+                    style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 2px", marginLeft:6, lineHeight:1, flexShrink:0 }}>×</button>
                 </div>
               ))}
             </div>
@@ -3955,6 +3963,7 @@ ${parseText}`;
       const [editFat, setEditFat]       = useState("");
       const [editFibre, setEditFibre]   = useState("");
       const [editServing, setEditServing] = useState("");
+      const [editNeverFlag, setEditNeverFlag] = useState(false);
       const [diaryDate, setDiaryDate]   = useState(isoToday());
       const [diaryMeal, setDiaryMeal]   = useState("dinner");
       const [portionTarget, setPortionTarget] = useState(null); // { itemId, date, meal } | null
@@ -4028,6 +4037,7 @@ ${parseText}`;
         setEditFat(m.fat != null ? String(m.fat) : "");
         setEditFibre(m.fibre != null ? String(m.fibre) : "");
         setEditServing(ing.servingG != null ? String(ing.servingG) : "");
+        setEditNeverFlag(!!item.neverFlag);
         setDiaryDate(isoToday());
         setDiaryMeal("dinner");
         setEditItemId(item.id);
@@ -4098,7 +4108,7 @@ ${parseText}`;
         const toType = editTracking;
         const updatedPantry = pantry.map(p => {
           if (p.id !== editItemId) return p;
-          const base = { ...p, unit: editUnit, parLevel: isNaN(par) ? null : par, trackingType: toType };
+          const base = { ...p, unit: editUnit, parLevel: isNaN(par) ? null : par, trackingType: toType, neverFlag: editNeverFlag };
           if (toType === "count" && p.trackingType !== "count") return { ...base, quantity: 0, state: null };
           if (toType === "state" && p.trackingType !== "state") return { ...base, state: "have", quantity: null };
           return base;
@@ -4457,6 +4467,10 @@ ${parseText}`;
                     style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 10px",color:S.text,fontSize:12,outline:"none" }} />
                   <span style={{ fontSize:9,color:S.dimmer,whiteSpace:"nowrap" }}>g per serving</span>
                 </div>
+                <button onClick={()=>setEditNeverFlag(v=>!v)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"10px 12px", marginBottom:12, cursor:"pointer" }}>
+                  <span style={{ fontSize:12, color:S.text }}>Restocking alerts</span>
+                  <span style={{ fontSize:10, fontWeight:700, letterSpacing:1, color: editNeverFlag ? S.dim : S.green }}>{editNeverFlag ? "OFF" : "ON"}</span>
+                </button>
                 {(() => {
                   const it = pantry.find(p => p.id === editItemId);
                   const ig = it ? getIng(it.itemId) : null;
