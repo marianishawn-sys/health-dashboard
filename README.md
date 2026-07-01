@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.17.0
+# Nutrition Concierge — v7.18.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.18.0 — Grocery add links to existing pantry items
+- Manual grocery add now shows **pantry autocomplete**: as you type, items you already stock appear ("IN YOUR PANTRY — TAP TO LINK") with their category + current qty. Tapping one adds a grocery item **linked by `itemId`**, so checking it off later updates that exact pantry item (no duplicate, macros already present). Typing an exact stocked name + ADD links it automatically too.
+- Coach `coach-grocery.json` ingest already links by exact ingredient name (unchanged).
 
 ### v7.17.0 — Grocery purchase pulls macros + no duplicates; pantry sorted A–Z
 - Checking off a grocery item now **pulls macros** into the pantry item — reuses known macros (the linked ingredient, or a matching food/ingredient), else an **AI lookup** when a key is present — so it's loggable with real macros in the diary.
