@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.16.0
+# Nutrition Concierge — v7.17.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.17.0 — Grocery purchase pulls macros + no duplicates; pantry sorted A–Z
+- Checking off a grocery item now **pulls macros** into the pantry item — reuses known macros (the linked ingredient, or a matching food/ingredient), else an **AI lookup** when a key is present — so it's loggable with real macros in the diary.
+- `stockPantry` matches by **id → exact name → normalized name** (case/space/plural), so an already-stocked item gets its quantity **incremented instead of duplicated**. Macros also backfill onto a matched macro-less ingredient.
+- **Pantry tab now lists freezer / fridge / pantry items alphabetically (A–Z)** by default; "flagged first" keeps status order, then A–Z within each status.
 
 ### v7.16.0 — Grocery list ↔ pantry linked (purchased → stock, scan → clear)
 - **Check off a grocery item** → a **PURCHASED** popup (quantity + unit + freezer/fridge/pantry). **✓ ADD TO PANTRY** creates or **increments** the pantry item (real restock) and removes it from the grocery list; **"just check off"** moves it to DONE as before.
