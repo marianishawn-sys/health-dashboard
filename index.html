@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.19.0";
+    const VERSION = "v7.20.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1902,36 +1902,33 @@
 
     // ───────────────────── EDIT ENTRY MODAL ─────────────────────
     function EditEntryModal({ entry, slot, data, onSave, onDelete, onClose }) {
-      const food = data.foods.find(f => f.id === entry.foodId);
-      // Only weight units are editable here; count-unit entries (e.g. "large eggs") edit in grams.
-      const initUnit = [entry.displayUnit, food?.preferredUnit].find(u => ["g","oz","lb"].includes(u)) || "g";
-      const [unit, setUnit] = useState(initUnit);
-      const [grams, setGrams] = useState(entry.grams || 100);
-      const [notes, setNotes] = useState(entry.notes || "");
+      const real = data.foods.find(f => f.id === entry.foodId);
+      const g0 = entry.grams || 100;
+      const wasCount = entry.displayUnit && !["g","oz","lb"].includes(entry.displayUnit);
+      // Reuse PortionAdjust (count/weight toggle + clearable inputs). If the library food
+      // is gone, reconstruct one from the entry's stored macros so editing still works.
+      const food = real || {
+        id: entry.foodId, name: entry.name, brand: entry.brand || "",
+        per100g: {
+          cal: round((entry.cal || 0) / g0 * 100), protein: round((entry.protein || 0) / g0 * 100, 1),
+          carbs: round((entry.carbs || 0) / g0 * 100, 1), fat: round((entry.fat || 0) / g0 * 100, 1),
+          fibre: round((entry.fibre || 0) / g0 * 100, 1),
+        },
+        ...(wasCount ? { servingG: entry.displayQty > 0 ? round(g0 / entry.displayQty) : g0, servingUnit: entry.displayUnit } : {}),
+      };
+      const initial = wasCount
+        ? { mode: "serving", servings: entry.displayQty || round(g0 / (food.servingG || 100), 2), grams: g0 }
+        : { mode: "grams", grams: g0, unit: ["oz","lb"].includes(entry.displayUnit) ? entry.displayUnit : "g" };
 
-      const displayQty = gramsToUnit(grams, unit);
-
-      const macros = useMemo(() => {
-        if (food?.per100g) return scaleMacros(food.per100g, grams);
-        // Proportional scaling from stored entry macros
-        const ratio = entry.grams > 0 ? grams / entry.grams : 1;
-        return {
-          cal: round((entry.cal || 0) * ratio),
-          protein: round((entry.protein || 0) * ratio, 1),
-          carbs: round((entry.carbs || 0) * ratio, 1),
-          fat: round((entry.fat || 0) * ratio, 1),
-        };
-      }, [food, grams, entry]);
-
-      const handleSave = () => {
-        const preferredUnit = unit !== "g" ? unit : null;
+      const doSave = (g, notes, opts) => {
+        const m = scaleMacros(food.per100g, g);
         onSave(slot, entry.id, {
-          grams,
-          ...(unit !== "g" ? { displayQty, displayUnit: unit } : { displayQty: undefined, displayUnit: undefined }),
-          notes: notes.trim() || undefined,
-          ...macros,
+          grams: g,
+          ...(opts.displayUnit ? { displayQty: opts.displayQty, displayUnit: opts.displayUnit } : { displayQty: undefined, displayUnit: undefined }),
+          notes: notes || undefined,
+          ...m,
           ts: entry.ts, // preserve original timestamp
-        }, preferredUnit, entry.foodId);
+        }, opts.preferredUnit || null, entry.foodId);
         onClose();
       };
 
@@ -1939,75 +1936,19 @@
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:200, display:"flex", flexDirection:"column", paddingTop:"env(safe-area-inset-top)" }} onClick={onClose}>
           <div className="slideUp" style={{ background:S.bg, marginTop:"auto", borderTopLeftRadius:18, borderTopRightRadius:18, padding:"16px 16px 24px", maxHeight:"90vh", overflowY:"auto", borderTop:"1px solid "+S.border }} onClick={e => e.stopPropagation()}>
             <div style={{ width:40, height:4, background:S.dimmer, borderRadius:2, margin:"0 auto 12px" }} />
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, textAlign:"center", marginBottom:14 }}>EDIT ENTRY · {slot ? slot.toUpperCase() : ""}</div>
-
-            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:12, marginBottom:14 }}>
-              <div style={{ fontSize:14, fontWeight:500, color:S.text }}>{entry.name}</div>
-              {entry.brand && <div style={{ fontSize:11, color:S.dim, marginTop:2 }}>{entry.brand}</div>}
-            </div>
-
-            {/* Portion */}
-            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
-              <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>PORTION</div>
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                <button onClick={() => setGrams(g => Math.max(1, g - 25))}
-                  style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>−25g</button>
-                <input
-                  type="number" inputMode="decimal"
-                  value={displayQty}
-                  onChange={e => setGrams(Math.max(1, unitToGrams(parseFloat(e.target.value) || 0, unit)))}
-                  style={{ flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none" }}
-                />
-                <button onClick={() => setGrams(g => Math.max(1, g + 25))}
-                  style={{ width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" }}>+25g</button>
-              </div>
-              <UnitSelector unit={unit} onChange={setUnit} />
-            </div>
-
-            {/* Macro preview */}
-            <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:12, padding:14, marginBottom:14 }}>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, textAlign:"center" }}>
-                {[
-                  { label:"KCAL", val: macros.cal, color: S.accent },
-                  { label:"PRO", val: macros.protein, color: S.green, suf:"g" },
-                  { label:"CRB", val: macros.carbs, color: S.blue, suf:"g" },
-                  { label:"FAT", val: macros.fat, color: S.purple, suf:"g" },
-                ].map(m => (
-                  <div key={m.label}>
-                    <div style={{ fontSize:20, fontWeight:600, color: m.color, fontFamily:"'DM Mono',monospace" }}>{m.val}<span style={{ fontSize:10, color:S.dim }}>{m.suf||""}</span></div>
-                    <div style={{ fontSize:9, color:S.dim, letterSpacing:1.5, marginTop:2 }}>{m.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <textarea
-              placeholder="Notes (optional)…"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={2}
-              style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", resize:"none", marginBottom:10, fontFamily:"inherit" }}
+            <PortionAdjust
+              food={food} slot={slot} initial={initial} title="EDIT"
+              logLabel="SAVE ·" initialNotes={entry.notes || ""}
+              onCancel={onClose} onLog={doSave}
+              onDelete={() => onDelete(slot, entry.id)}
             />
-
-            <button onClick={handleSave}
-              style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"14px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-              SAVE CHANGES · {displayQty} {unit}
-            </button>
-            <button onClick={() => onDelete(slot, entry.id)}
-              style={{ width:"100%", background:"rgba(248,113,113,0.1)", border:`1px solid ${S.red}55`, color:S.red, borderRadius:12, padding:"12px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-              DELETE ENTRY
-            </button>
-            <button onClick={onClose}
-              style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"10px", fontSize:12, letterSpacing:1, cursor:"pointer" }}>
-              CANCEL
-            </button>
           </div>
         </div>
       );
     }
 
     // ───────────────────── PORTION ADJUST ─────────────────────
-    function PortionAdjust({ food, slot, onCancel, onLog }) {
+    function PortionAdjust({ food, slot, onCancel, onLog, initial, logLabel, onDelete, initialNotes, title }) {
       const pluralize = (w, n) => n === 1 ? w : (w === "potato" ? "potatoes" : w + "s");
       // Derive a clean unit name from a refPortion label like "1 large egg" → "large egg"
       const deriveUnit = (label) => {
@@ -2022,18 +1963,21 @@
       const baseServG = food.servingG || (food.refPortion && food.refPortion.grams) || 100;
       const baseUnit  = food.servingUnit || deriveUnit(food.refPortion && food.refPortion.label);
       const canServe  = !!(food.servingG || (food.refPortion && food.refPortion.grams));
+      const initUnit  = (initial && initial.unit && ["g","oz","lb"].includes(initial.unit)) ? initial.unit
+        : (food.preferredUnit && ["g","oz","lb"].includes(food.preferredUnit) ? food.preferredUnit : "g");
 
-      // Default to count mode only when the food has a real named unit (egg, stick…), not generic "serving"
-      const [mode, setMode]   = useState(canServe && baseUnit !== "serving" ? "serving" : "grams");
-      const [unit, setUnit]   = useState(food.preferredUnit && ["g","oz","lb"].includes(food.preferredUnit) ? food.preferredUnit : "g");
-      const [servingsStr, setServingsStr] = useState("1");
-      const [gramsStr, setGramsStr]       = useState(String(baseServG));
+      // Default to count mode only when the food has a real named unit (egg, stick…), not
+      // generic "serving". `initial` (edit flow) pre-fills the entry's current portion.
+      const [mode, setMode]   = useState((initial && initial.mode) || (canServe && baseUnit !== "serving" ? "serving" : "grams"));
+      const [unit, setUnit]   = useState(initUnit);
+      const [servingsStr, setServingsStr] = useState(initial && initial.servings != null ? String(round(initial.servings, 2)) : "1");
+      const [gramsStr, setGramsStr]       = useState(initial && initial.grams != null ? String(gramsToUnit(initial.grams, initUnit)) : String(baseServG));
       const [servG, setServG]   = useState(baseServG);
       const [servUnit, setServUnit] = useState(baseUnit);
       const [editServ, setEditServ] = useState(false);
       const [servGStr, setServGStr] = useState(String(baseServG));
       const [servUnitStr, setServUnitStr] = useState(baseUnit);
-      const [notes, setNotes] = useState("");
+      const [notes, setNotes] = useState(initialNotes || "");
 
       const servings   = parseFloat(servingsStr) || 0;
       const gramsInput = Math.max(0, unitToGrams(parseFloat(gramsStr) || 0, unit));
@@ -2079,7 +2023,7 @@
             <button onClick={onCancel} style={{ background:"none", border:"none", color:S.dim, fontSize:13, padding:"4px 0", cursor:"pointer", letterSpacing:1 }}>
               ← BACK
             </button>
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>PORTION · {slot ? slot.toUpperCase() : ""}</div>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>{title || "PORTION"} · {slot ? slot.toUpperCase() : ""}</div>
             <div style={{ width:60 }} />
           </div>
 
@@ -2187,8 +2131,14 @@
           />
           <button onClick={doLog}
             style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
-            LOG {mode === "serving" ? round(servings,2) + " " + pluralize(servUnit, servings) : gramsToUnit(actualGrams, unit) + " " + unit}
+            {logLabel || "LOG"} {mode === "serving" ? round(servings,2) + " " + pluralize(servUnit, servings) : gramsToUnit(actualGrams, unit) + " " + unit}
           </button>
+          {onDelete && (
+            <button onClick={onDelete}
+              style={{ width:"100%", background:"rgba(248,113,113,0.1)", border:`1px solid ${S.red}55`, color:S.red, borderRadius:12, padding:"12px", fontSize:12, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+              DELETE ENTRY
+            </button>
+          )}
         </div>
       );
     }
