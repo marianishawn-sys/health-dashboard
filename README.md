@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.19.0
+# Nutrition Concierge — v7.20.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.20.0 — Edit diary entry reuses PortionAdjust (count/serving + clearable qty)
+- Editing a logged diary entry now opens the **same PortionAdjust** used when adding, pre-filled to the entry's current portion. So a count/serving entry (eggs, sticks…) edits **by that unit** with a BY-WEIGHT toggle — not weight-only — and the quantity field is **fully clearable** (fixes the stuck-first-digit bug that only affected the edit modal).
+- `PortionAdjust` gained optional props (`initial`, `logLabel`, `onDelete`, `initialNotes`, `title`); `EditEntryModal` is a thin wrapper (reconstructs a food from the entry's stored macros if the library food is gone). Removed the duplicated weight-only edit UI.
 
 ### v7.19.0 — Dismiss (✕) restock suggestions + data cleanup
 - **NEEDS RESTOCKING rows have an ✕** to dismiss an item (sets the pantry item's `neverFlag` → stops flagging it low/out/expiring). Reversible from the item's edit screen via a **"Restocking alerts ON/OFF"** toggle.
