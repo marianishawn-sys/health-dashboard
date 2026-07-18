@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.21.0
+# Nutrition Concierge — v7.22.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.22.0 — Swipe to change day (Today tab)
+- **Swipe right → previous day, swipe left → next day** (never past today). Bound to the Today tab's own container so overlays (food picker, edit/copy sheets) don't change the day behind them; ignores mostly-vertical gestures (scroll / pull-to-refresh) and swipes starting within 28px of a screen edge (Android back gesture). 60px minimum travel.
 
 ### v7.21.0 — Move an entry between meals + copy a whole meal
 - **Move:** the edit screen has a **MEAL picker** (BRE/LUN/DIN/SNA). Change it and the entry moves out of its old slot into the new one on save (hint: "Will move from DINNER → LUNCH"). `saveEditedEntry` takes an optional `newSlot`.
