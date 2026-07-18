@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.22.0
+# Nutrition Concierge — v7.23.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.23.0 — In-app update detection
+- Browser / installed-PWA caches can pin an old build (clearing Chrome's browsing data does **not** clear an installed app's storage — that's a separate "Clear storage" under App info). The app now polls its own deployed `index.html` cache-busted (on load, then every 5 min), compares the `VERSION` constant, and shows a tappable **"⟳ UPDATE AVAILABLE (vX.Y.Z) — TAP TO RELOAD"** bar above the bottom nav that hard-reloads with a cache-busting query.
+- **Stale-version debugging:** check `/health-dashboard/` **and** `/health-dashboard/index.html` (the PWA `start_url`) — they're separate cache entries. If both serve the new version and there's no service worker (there isn't one), the staleness is client-local.
 
 ### v7.22.0 — Swipe to change day (Today tab)
 - **Swipe right → previous day, swipe left → next day** (never past today). Bound to the Today tab's own container so overlays (food picker, edit/copy sheets) don't change the day behind them; ignores mostly-vertical gestures (scroll / pull-to-refresh) and swipes starting within 28px of a screen edge (Android back gesture). 60px minimum travel.
