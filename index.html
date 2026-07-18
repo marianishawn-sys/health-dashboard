@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.20.0";
+    const VERSION = "v7.21.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1220,14 +1220,37 @@
         });
       };
 
-      const saveEditedEntry = (slot, entryId, updates, preferredUnit, foodId) => {
+      // newSlot lets the edit screen MOVE an entry to a different meal (e.g. dinner → lunch).
+      const saveEditedEntry = (slot, entryId, updates, preferredUnit, foodId, newSlot) => {
         const day = data.logs[selectedDate] || {};
-        const meal = (day[slot] || []).map(e => e.id === entryId ? { ...e, ...updates } : e);
+        const target = newSlot || slot;
+        let dayNext;
+        if (target === slot) {
+          dayNext = { ...day, [slot]: (day[slot] || []).map(e => e.id === entryId ? { ...e, ...updates } : e) };
+        } else {
+          const moved = (day[slot] || []).find(e => e.id === entryId);
+          dayNext = {
+            ...day,
+            [slot]: (day[slot] || []).filter(e => e.id !== entryId),
+            [target]: [...(day[target] || []), { ...moved, ...updates }],
+          };
+        }
         let foods = data.foods;
         if (preferredUnit !== undefined && foodId) {
           foods = data.foods.map(f => f.id === foodId ? { ...f, preferredUnit } : f);
         }
-        saveData({ ...data, foods, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: meal } } });
+        saveData({ ...data, foods, logs: { ...data.logs, [selectedDate]: dayNext } });
+      };
+
+      // Copy every entry of one meal into another meal — same day or a different date.
+      const copyMeal = (fromDate, fromSlot, toDate, toSlot) => {
+        const src = ((data.logs[fromDate] || {})[fromSlot]) || [];
+        if (src.length === 0) return 0;
+        const now = new Date().toISOString();
+        const copies = src.map(e => ({ ...e, id: uid("log"), ts: now }));
+        const day = data.logs[toDate] || {};
+        saveData({ ...data, logs: { ...data.logs, [toDate]: { ...day, [toSlot]: [...(day[toSlot] || []), ...copies] } } }, true);
+        return copies.length;
       };
 
       // ─── Render ───
@@ -1285,6 +1308,7 @@
               selectedDate={selectedDate} today={today} onDateChange={setSelectedDate}
               onAddFood={openFoodPicker}
               onRequestDelete={requestDelete} pendingDelete={pendingDelete} onUndoDelete={undoDelete}
+              onCopyMeal={copyMeal}
               onEditEntry={(entry, slot) => setEditEntry({ entry, slot })} />
           )}
           {tab === "grocery" && (
@@ -1373,10 +1397,27 @@
     }
 
     // ───────────────────── TODAY TAB ─────────────────────
-    function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onRequestDelete, pendingDelete, onUndoDelete, onEditEntry }) {
+    function TodayTab({ data, targets, totals, selectedDate, today, onDateChange, onAddFood, onRequestDelete, pendingDelete, onUndoDelete, onCopyMeal, onEditEntry }) {
       const day = data.logs[selectedDate] || {};
       const isToday = selectedDate === today;
       const dateInputRef = useRef(null);
+
+      // ── Copy a whole meal → another meal / day ──
+      const [copyFrom, setCopyFrom] = useState(null); // source slot being copied | null
+      const [copyDate, setCopyDate] = useState(today);
+      const [copySlot, setCopySlot] = useState("lunch");
+      const [copyMsg, setCopyMsg]   = useState("");
+      const openCopy = (slotKey) => { setCopyFrom(slotKey); setCopyDate(today); setCopySlot(slotKey); };
+      const doCopy = () => {
+        const n = onCopyMeal(selectedDate, copyFrom, copyDate, copySlot);
+        setCopyFrom(null);
+        setCopyMsg(`Copied ${n} item${n !== 1 ? "s" : ""} → ${copySlot.toUpperCase()}${copyDate === today ? " today" : " on " + copyDate}`);
+      };
+      useEffect(() => {
+        if (!copyMsg) return;
+        const t = setTimeout(() => setCopyMsg(""), 5000);
+        return () => clearTimeout(t);
+      }, [copyMsg]);
       const openDatePicker = () => {
         if (!dateInputRef.current) return;
         try { dateInputRef.current.showPicker(); } catch(e) { dateInputRef.current.click(); }
@@ -1494,6 +1535,46 @@
 
           {/* Scrollable meals */}
           <div style={{ padding:"10px 16px 24px" }}>
+
+          {copyMsg && (
+            <div onClick={()=>setCopyMsg("")} style={{ background:`${S.green}1a`, border:`1px solid ${S.green}55`, color:S.green, borderRadius:8, padding:"9px 10px", marginBottom:10, fontSize:11, fontWeight:600, textAlign:"center", cursor:"pointer" }}>
+              {copyMsg}
+            </div>
+          )}
+
+          {/* Copy meal → another meal / day */}
+          {copyFrom && (
+            <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:150, display:"flex", alignItems:"flex-end" }} onClick={()=>setCopyFrom(null)}>
+              <div className="slideUp" style={{ background:S.bg, width:"100%", borderTopLeftRadius:18, borderTopRightRadius:18, padding:"18px 18px 26px", borderTop:"1px solid "+S.border }} onClick={e=>e.stopPropagation()}>
+                <div style={{ width:40, height:4, background:S.dimmer, borderRadius:2, margin:"0 auto 14px" }} />
+                <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:4 }}>COPY MEAL</div>
+                <div style={{ fontSize:16, fontWeight:500, color:S.text, marginBottom:16 }}>
+                  {copyFrom.toUpperCase()} <span style={{ fontSize:12, color:S.dim }}>· {(day[copyFrom] || []).length} item{(day[copyFrom] || []).length !== 1 ? "s" : ""}</span>
+                </div>
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>COPY TO DATE</div>
+                <input type="date" value={copyDate} max={today} onChange={e => e.target.value && setCopyDate(e.target.value)}
+                  style={{ width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"11px 12px", color:S.text, fontSize:14, outline:"none", marginBottom:14, boxSizing:"border-box" }} />
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>COPY TO MEAL</div>
+                <div style={{ display:"flex", gap:5, marginBottom:18 }}>
+                  {meals.map(mm => (
+                    <button key={mm.k} onClick={()=>setCopySlot(mm.k)}
+                      style={{ flex:1, padding:"10px 4px", borderRadius:8, border:`1px solid ${copySlot===mm.k?S.accent:S.border}`, background:copySlot===mm.k?`${S.accent}22`:S.panel2, color:copySlot===mm.k?S.accent:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
+                      {mm.k.slice(0,3).toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={doCopy}
+                  style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"14px", fontSize:12, fontWeight:700, letterSpacing:1, cursor:"pointer", marginBottom:8 }}>
+                  ⧉ COPY {(day[copyFrom] || []).length} ITEM{(day[copyFrom] || []).length !== 1 ? "S" : ""}
+                </button>
+                <button onClick={()=>setCopyFrom(null)}
+                  style={{ width:"100%", background:"none", border:"none", color:S.dim, padding:"8px", fontSize:11, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Meals */}
           {meals.map(m => {
             const entries = day[m.k] || [];
@@ -1511,9 +1592,17 @@
                       <span style={{ fontSize:10, color:S.dim, marginLeft:4 }}>· {round(mealTotal.cal)} kcal · {round(mealTotal.protein,1)}P</span>
                     )}
                   </div>
-                  <button onClick={() => onAddFood(m.k)} style={{ background:`${S.accent}1a`, border:`1px solid ${S.accent}55`, color:S.accent, padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-                    + ADD FOOD
-                  </button>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                    {entries.length > 0 && (
+                      <button onClick={() => openCopy(m.k)} title="Copy this meal to another meal or day"
+                        style={{ background:S.panel2, border:"1px solid "+S.border, color:S.dim, padding:"6px 10px", borderRadius:8, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                        ⧉ COPY
+                      </button>
+                    )}
+                    <button onClick={() => onAddFood(m.k)} style={{ background:`${S.accent}1a`, border:`1px solid ${S.accent}55`, color:S.accent, padding:"6px 12px", borderRadius:8, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
+                      + ADD FOOD
+                    </button>
+                  </div>
                 </div>
                 {entries.filter(e => !(pendingDelete && pendingDelete.entry.id === e.id)).map(e => (
                   <div key={e.id} onClick={() => onEditEntry(e, m.k)}
@@ -1920,6 +2009,8 @@
         ? { mode: "serving", servings: entry.displayQty || round(g0 / (food.servingG || 100), 2), grams: g0 }
         : { mode: "grams", grams: g0, unit: ["oz","lb"].includes(entry.displayUnit) ? entry.displayUnit : "g" };
 
+      const [targetSlot, setTargetSlot] = useState(slot); // change to MOVE this entry to another meal
+
       const doSave = (g, notes, opts) => {
         const m = scaleMacros(food.per100g, g);
         onSave(slot, entry.id, {
@@ -1928,7 +2019,7 @@
           notes: notes || undefined,
           ...m,
           ts: entry.ts, // preserve original timestamp
-        }, opts.preferredUnit || null, entry.foodId);
+        }, opts.preferredUnit || null, entry.foodId, targetSlot);
         onClose();
       };
 
@@ -1936,8 +2027,23 @@
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.65)", zIndex:200, display:"flex", flexDirection:"column", paddingTop:"env(safe-area-inset-top)" }} onClick={onClose}>
           <div className="slideUp" style={{ background:S.bg, marginTop:"auto", borderTopLeftRadius:18, borderTopRightRadius:18, padding:"16px 16px 24px", maxHeight:"90vh", overflowY:"auto", borderTop:"1px solid "+S.border }} onClick={e => e.stopPropagation()}>
             <div style={{ width:40, height:4, background:S.dimmer, borderRadius:2, margin:"0 auto 12px" }} />
+            {/* Move this entry to a different meal */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>MEAL</div>
+              <div style={{ display:"flex", gap:5 }}>
+                {["breakfast","lunch","dinner","snacks"].map(mk => (
+                  <button key={mk} onClick={()=>setTargetSlot(mk)}
+                    style={{ flex:1, padding:"9px 4px", borderRadius:8, border:`1px solid ${targetSlot===mk?S.accent:S.border}`, background:targetSlot===mk?`${S.accent}22`:S.panel2, color:targetSlot===mk?S.accent:S.dim, fontSize:10, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
+                    {mk.slice(0,3).toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              {targetSlot !== slot && (
+                <div style={{ fontSize:10, color:S.accent, marginTop:6 }}>Will move from {slot.toUpperCase()} → {targetSlot.toUpperCase()}</div>
+              )}
+            </div>
             <PortionAdjust
-              food={food} slot={slot} initial={initial} title="EDIT"
+              food={food} slot={targetSlot} initial={initial} title="EDIT"
               logLabel="SAVE ·" initialNotes={entry.notes || ""}
               onCancel={onClose} onLog={doSave}
               onDelete={() => onDelete(slot, entry.id)}
