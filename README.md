@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.20.0
+# Nutrition Concierge — v7.21.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.21.0 — Move an entry between meals + copy a whole meal
+- **Move:** the edit screen has a **MEAL picker** (BRE/LUN/DIN/SNA). Change it and the entry moves out of its old slot into the new one on save (hint: "Will move from DINNER → LUNCH"). `saveEditedEntry` takes an optional `newSlot`.
+- **Copy meal:** each meal header shows a **⧉ COPY** button (when it has entries) → sheet to pick a target **date + meal**, then clones every entry there (fresh ids/timestamps, immediate save) with a confirmation toast. Page back a few days and re-copy the same meal onto today.
 
 ### v7.20.0 — Edit diary entry reuses PortionAdjust (count/serving + clearable qty)
 - Editing a logged diary entry now opens the **same PortionAdjust** used when adding, pre-filled to the entry's current portion. So a count/serving entry (eggs, sticks…) edits **by that unit** with a BY-WEIGHT toggle — not weight-only — and the quantity field is **fully clearable** (fixes the stuck-first-digit bug that only affected the edit modal).
