@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.21.0";
+    const VERSION = "v7.22.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1418,6 +1418,46 @@
         const t = setTimeout(() => setCopyMsg(""), 5000);
         return () => clearTimeout(t);
       }, [copyMsg]);
+
+      // ── Swipe left/right to change the day ──
+      // Bound to this tab's own container, so overlays (food picker, edit sheet) don't
+      // scroll the day behind them. Ignores edge swipes (Android back gesture) and any
+      // gesture that's mostly vertical (scrolling / pull-to-refresh).
+      const rootRef = useRef(null);
+      const swipeRef = useRef({ x:0, y:0, active:false });
+      useEffect(() => {
+        const el = rootRef.current;
+        if (!el) return;
+        const TH = 60, EDGE = 28, st = swipeRef.current;
+        const onStart = (e) => {
+          if (copyFrom || e.touches.length !== 1) { st.active = false; return; }
+          const t = e.touches[0];
+          if (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) { st.active = false; return; }
+          st.x = t.clientX; st.y = t.clientY; st.active = true;
+        };
+        const onEnd = (e) => {
+          if (!st.active) return;
+          st.active = false;
+          const t = e.changedTouches && e.changedTouches[0];
+          if (!t) return;
+          const dx = t.clientX - st.x, dy = t.clientY - st.y;
+          if (Math.abs(dx) < TH || Math.abs(dx) < Math.abs(dy) * 1.5) return;  // mostly vertical → ignore
+          const d = new Date(selectedDate + "T12:00:00");
+          if (dx < 0) {                       // swipe left → next day (never past today)
+            if (selectedDate >= today) return;
+            d.setDate(d.getDate() + 1);
+          } else {                            // swipe right → previous day
+            d.setDate(d.getDate() - 1);
+          }
+          onDateChange(d.toISOString().slice(0, 10));
+        };
+        el.addEventListener("touchstart", onStart, { passive: true });
+        el.addEventListener("touchend", onEnd, { passive: true });
+        return () => {
+          el.removeEventListener("touchstart", onStart);
+          el.removeEventListener("touchend", onEnd);
+        };
+      }, [selectedDate, today, onDateChange, copyFrom]);
       const openDatePicker = () => {
         if (!dateInputRef.current) return;
         try { dateInputRef.current.showPicker(); } catch(e) { dateInputRef.current.click(); }
@@ -1460,7 +1500,7 @@
       const hasAnyEntry = Object.values(day).some(arr => Array.isArray(arr) && arr.length > 0);
 
       return (
-        <div>
+        <div ref={rootRef}>
           {/* Sticky header: date nav + macro card + MEALS label */}
           <div style={{ position:"sticky", top:"60px", zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
           {/* Date navigation */}
