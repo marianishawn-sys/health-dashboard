@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.22.0";
+    const VERSION = "v7.23.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -856,6 +856,7 @@
       const [pullY, setPullY]         = useState(0);
       const [refreshing, setRefreshing] = useState(false);
       const [ptrSnap, setPtrSnap]     = useState(false);
+      const [updateReady, setUpdateReady] = useState(null); // newer deployed version string | null
       const ptrRef   = useRef({ startY:0, active:false, dist:0 });
       const ptrGuard = useRef({ ok:false, refresh:null });
 
@@ -1017,6 +1018,23 @@
           document.removeEventListener("touchend", onEnd);
           document.removeEventListener("touchcancel", onEnd);
         };
+      }, []);
+
+      // ─── Update check ───
+      // Browser/PWA caching can pin an old build for a long time. Poll the deployed
+      // index.html (cache-busted) and offer a one-tap hard reload when it differs.
+      useEffect(() => {
+        const check = async () => {
+          try {
+            const res = await fetch("./index.html?vcheck=" + Date.now(), { cache: "no-store" });
+            if (!res.ok) return;
+            const m = (await res.text()).match(/const VERSION = "([^"]+)"/);
+            if (m && m[1] !== VERSION) setUpdateReady(m[1]);
+          } catch (e) {}
+        };
+        check();
+        const t = setInterval(check, 5 * 60 * 1000);
+        return () => clearInterval(t);
       }, []);
 
       // ─── Debounced save ───
@@ -1284,6 +1302,15 @@
                      transform: refreshing ? "none" : `rotate(${Math.min(270, pullY*3)}deg)`, opacity: refreshing ? 1 : Math.min(1, 0.35 + pullY/45) }} />
               </div>
             </div>
+          )}
+          {/* Update available → hard reload past the cache */}
+          {updateReady && (
+            <button onClick={() => { window.location.href = window.location.pathname + "?u=" + Date.now(); }}
+              style={{ position:"fixed", left:12, right:12, bottom:"calc(64px + env(safe-area-inset-bottom))", zIndex:70,
+                background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"12px",
+                fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:"pointer", boxShadow:"0 4px 14px rgba(0,0,0,0.5)" }}>
+              ⟳ UPDATE AVAILABLE ({updateReady}) — TAP TO RELOAD
+            </button>
           )}
           {/* Header */}
           <div style={{ position:"sticky", top:0, zIndex:20, background:S.bg, padding:"14px 20px 8px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid "+S.border }}>
