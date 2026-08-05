@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.26.0
+# Nutrition Concierge — v7.28.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,14 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.28.0 — Pantry search bar
+- A search box at the top of the Pantry tab filters freezer/fridge/pantry lists **live** as you type (substring on item name). Category headings for non-empty groups stay; empty ones hide. Clear (×) resets.
+
+### v7.27.0 — Recipe builder redesign · Phase 2 (scan / units / quick-add)
+- **Per-ingredient 📷 scan** in the builder — scans a barcode/label (reuses PantryScan), registers the ingredient with its macros, drops it in as a row.
+- **Natural units:** `gramsPerUnit` now converts cup/tbsp/tsp/pinch (~water density), so rows in those units compute grams + macros instead of falling back.
+- **QUICK ADD chips:** your most-used ingredients (recipes + pantry, macro'd only) as one-tap chips when the search box is empty.
 
 ### v7.26.0 — Recipe builder redesign · Phase 1 (full-screen + photo/paste)
 - **Full-screen builder** replaces the cramped modal: sticky Cancel/Save header, name, servings **stepper**, ingredient rows that each show their **macro contribution** (g · kcal · P/C/F) or a "no macros" flag, inline **create-new-ingredient**, **live PER SERVING totals + whole-recipe kcal**, instructions.
