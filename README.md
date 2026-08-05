@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.23.0
+# Nutrition Concierge — v7.25.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,14 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.25.0 — Pantry macros entered per serving (label), not per 100g
+- The item edit screen now takes the **serving size first**, then **macros PER SERVING** — enter the label values directly. They convert to per-100g internally on save and back for display on open, so no more manual per-100g math for any pantry/fridge/freezer item.
+
+### v7.24.0 — Recipes: parse fixed, macros computed, add-ingredient inline
+- Fixed **"parse failed: failed to fetch"** — `parseRecipe` was missing the `anthropic-dangerous-direct-browser-access` header that every other AI call has.
+- Recipes now get real macros: the parser asks for per-ingredient **grams + per-100g macros**, `computePerServing()` sums them ÷ servings → `recipe.perServing` (so recipes are loggable), and the editor shows a **live per-serving macro preview**.
+- The recipe editor can **add a new ingredient inline** — the search always offers "＋ Add '<text>' as new ingredient", which creates the registry item and pulls its macros via AI (`createIngredient`). Existing items with no macros show a NO MACROS tag.
 
 ### v7.23.0 — In-app update detection
 - Browser / installed-PWA caches can pin an old build (clearing Chrome's browsing data does **not** clear an installed app's storage — that's a separate "Clear storage" under App info). The app now polls its own deployed `index.html` cache-busted (on load, then every 5 min), compares the `VERSION` constant, and shows a tappable **"⟳ UPDATE AVAILABLE (vX.Y.Z) — TAP TO RELOAD"** bar above the bottom nav that hard-reloads with a cache-busting query.
