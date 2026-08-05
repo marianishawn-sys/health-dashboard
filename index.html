@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.26.0";
+    const VERSION = "v7.27.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -730,6 +730,11 @@
       if (u === "kg" || u === "l") return 1000;
       if (u === "oz") return 28.35;
       if (u === "lb") return 453.6;
+      // Approximate volume→grams (assumes ~water density; good enough for recipe estimates)
+      if (u === "cup" || u === "cups") return 240;
+      if (u === "tbsp" || u === "tablespoon" || u === "tablespoons") return 15;
+      if (u === "tsp" || u === "teaspoon" || u === "teaspoons") return 5;
+      if (u === "pinch") return 0.5;
       return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
     };
 
@@ -2909,13 +2914,14 @@
     };
 
     // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
-    function RecipeEditor({ recipe, ingredients, onSave, onCancel, apiKey, onCreateIngredient }) {
+    function RecipeEditor({ recipe, ingredients, onSave, onCancel, apiKey, onCreateIngredient, onAddScanned, onMissingKey, quickIngredients }) {
       const [name, setName]             = useState(recipe.name || "");
       const [servings, setServings]     = useState(recipe.servings || 2);
       const [rows, setRows]             = useState(recipe.ingredients || []);
       const [instructions, setInstructions] = useState(recipe.instructions || "");
       const [ingSearch, setIngSearch]   = useState("");
       const [adding, setAdding]         = useState(false);
+      const [scanning, setScanning]     = useState(false);
 
       const preview = useMemo(() => computePerServing(rows, servings, ingredients), [rows, servings, ingredients]);
 
@@ -2938,6 +2944,14 @@
         const ing = await onCreateIngredient(nm);
         setAdding(false);
         if (ing) addIngredient(ing);
+      };
+      // A scanned product → registry ingredient (with its macros) → recipe row.
+      const handleScanned = (rawItems) => {
+        setScanning(false);
+        (rawItems || []).forEach(raw => {
+          const ing = onAddScanned && onAddScanned(raw);
+          if (ing) { const g = ing.servingG || 100; setRows(prev => [...prev, { itemId: ing.id, quantity: g, unit: "g", grams: g }]); }
+        });
       };
       const updateRow = (idx, field, val) =>
         setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
@@ -3010,9 +3024,13 @@
               );
             })}
 
-            {/* Ingredient search */}
-            <div style={{ position:"relative", margin:"8px 0 16px" }}>
-              <input placeholder="Add ingredient…" value={ingSearch} onChange={e => setIngSearch(e.target.value)} style={{ ...inputStyle }} />
+            {/* Ingredient search + scan */}
+            <div style={{ position:"relative", margin:"8px 0 10px" }}>
+              <div style={{ display:"flex", gap:6 }}>
+                <input placeholder="Add ingredient…" value={ingSearch} onChange={e => setIngSearch(e.target.value)} style={{ ...inputStyle, flex:1 }} />
+                <button onClick={() => { if (!apiKey) { onMissingKey && onMissingKey(); return; } setScanning(true); }} title="Scan a barcode / label"
+                  style={{ background:S.panel2, border:"1px solid "+S.border, color:S.accent, borderRadius:10, padding:"0 14px", fontSize:16, cursor:"pointer", flexShrink:0 }}>📷</button>
+              </div>
               {ingSearch.trim() && (
                 <div style={{ position:"absolute", left:0, right:0, top:"100%", background:S.bg, border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:240, overflowY:"auto" }}>
                   {ingResults.map(ing => (
@@ -3029,6 +3047,21 @@
                 </div>
               )}
             </div>
+
+            {/* Quick-add from your most-used ingredients */}
+            {!ingSearch.trim() && quickIngredients && quickIngredients.filter(ig => !rows.some(r => r.itemId === ig.id)).length > 0 && (
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:8, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>QUICK ADD</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                  {quickIngredients.filter(ig => !rows.some(r => r.itemId === ig.id)).slice(0, 8).map(ig => (
+                    <button key={ig.id} onClick={() => addIngredient(ig)}
+                      style={{ background:S.panel2, border:"1px solid "+S.border, color:S.text, borderRadius:20, padding:"6px 12px", fontSize:12, cursor:"pointer", maxWidth:"100%", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      ＋ {ig.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Totals */}
             <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:12, marginBottom:16 }}>
@@ -3056,6 +3089,13 @@
               SAVE RECIPE
             </button>
           </div>
+
+          {/* Per-ingredient barcode / label scanner */}
+          {scanning && (
+            <div style={{ position:"fixed", inset:0, background:S.bg, zIndex:260, overflowY:"auto" }}>
+              <PantryScan mode="single" apiKey={apiKey} onClose={() => setScanning(false)} onResult={handleScanned} />
+            </div>
+          )}
         </div>
       );
     }
@@ -3379,6 +3419,38 @@
         return ing;
       };
 
+      // A scanned product → registry ingredient (with its label macros). Returns the ingredient.
+      const addScannedToRegistry = (raw) => {
+        const nm = ((raw && raw.name) || "").trim();
+        if (!nm) return null;
+        const pm = raw.per100g && raw.per100g.cal != null ? raw.per100g : null;
+        const existing = ingredients.find(i => (i.name||"").trim().toLowerCase() === nm.toLowerCase());
+        if (existing) {
+          if (pm && (!existing.per100g || existing.per100g.cal == null)) {
+            const upd = { ...existing, per100g: pm, ...(raw.servingG ? { servingG: raw.servingG } : {}), ...(raw.servingUnit ? { servingUnit: raw.servingUnit } : {}) };
+            setData({ ...data, ingredients: ingredients.map(i => i.id === existing.id ? upd : i) });
+            return upd;
+          }
+          return existing;
+        }
+        const cat = (raw.category || "").toLowerCase();
+        const ing = { id: uid("ing"), name: nm, defaultUnit: "g", category: ["freezer","fridge"].includes(cat) ? cat : "pantry",
+          ...(pm ? { per100g: pm } : {}), ...(raw.servingG ? { servingG: raw.servingG } : {}), ...(raw.servingUnit ? { servingUnit: raw.servingUnit } : {}) };
+        setData({ ...data, ingredients: [...ingredients, ing] });
+        return ing;
+      };
+
+      // Most-used ingredients (recipes + pantry) with macros — for the editor's quick-add chips.
+      const quickIngredients = useMemo(() => {
+        const freq = {};
+        recipes.forEach(r => (r.ingredients || []).forEach(x => { if (x.itemId) freq[x.itemId] = (freq[x.itemId] || 0) + 1; }));
+        (data.pantry || []).forEach(p => { if (p.itemId) freq[p.itemId] = (freq[p.itemId] || 0) + 0.5; });
+        return Object.keys(freq).sort((a,b) => freq[b] - freq[a])
+          .map(id => ingredients.find(i => i.id === id))
+          .filter(x => x && x.per100g && x.per100g.cal != null)
+          .slice(0, 10);
+      }, [recipes, data.pantry, ingredients]);
+
       const friendlyErr = (e) => {
         const m = (e && e.message) || "failed";
         if (/failed to fetch|networkerror|load failed/i.test(m))
@@ -3694,6 +3766,9 @@ Return ONLY this JSON:
               ingredients={ingredients}
               apiKey={apiKey}
               onCreateIngredient={createIngredient}
+              onAddScanned={addScannedToRegistry}
+              onMissingKey={onMissingKey}
+              quickIngredients={quickIngredients}
               onSave={saveRecipe}
               onCancel={() => setEditRecipe(null)}
             />
