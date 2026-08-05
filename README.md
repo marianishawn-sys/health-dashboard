@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.25.0
+# Nutrition Concierge — v7.26.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.26.0 — Recipe builder redesign · Phase 1 (full-screen + photo/paste)
+- **Full-screen builder** replaces the cramped modal: sticky Cancel/Save header, name, servings **stepper**, ingredient rows that each show their **macro contribution** (g · kcal · P/C/F) or a "no macros" flag, inline **create-new-ingredient**, **live PER SERVING totals + whole-recipe kcal**, instructions.
+- **Create WITH AI:** **📷 From Photo** (snap a recipe card / cookbook page / screenshot → AI extracts ingredients + macros → opens the builder pre-filled) and **📋 Paste text** (or URL). Shared pipeline: `buildRecipeSpec` / `callAnthropic` / `extractJSON` / `applyParsedRecipe` for both text + image.
+- Phase 2 (per-ingredient barcode scan, natural units, recents/favorites) still to come.
 
 ### v7.25.0 — Pantry macros entered per serving (label), not per 100g
 - The item edit screen now takes the **serving size first**, then **macros PER SERVING** — enter the label values directly. They convert to per-100g internally on save and back for display on open, so no more manual per-100g math for any pantry/fridge/freezer item.
