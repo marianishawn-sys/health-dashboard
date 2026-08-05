@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.24.0";
+    const VERSION = "v7.25.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -4235,11 +4235,14 @@ ${parseText}`;
         setEditUnit(item.unit || ing.defaultUnit || "portions");
         setEditPar(item.parLevel != null ? String(item.parLevel) : "");
         setEditTracking(item.trackingType || "count");
-        setEditCal(m.cal != null ? String(m.cal) : "");
-        setEditProtein(m.protein != null ? String(m.protein) : "");
-        setEditCarbs(m.carbs != null ? String(m.carbs) : "");
-        setEditFat(m.fat != null ? String(m.fat) : "");
-        setEditFibre(m.fibre != null ? String(m.fibre) : "");
+        // Macros are shown PER SERVING (matches the label). Convert from stored per-100g.
+        const servG = ing.servingG != null ? ing.servingG : 100;
+        const toServ = (v, d=1) => v != null ? String(round(v * servG / 100, d)) : "";
+        setEditCal(toServ(m.cal, 0));
+        setEditProtein(toServ(m.protein));
+        setEditCarbs(toServ(m.carbs));
+        setEditFat(toServ(m.fat));
+        setEditFibre(toServ(m.fibre));
         setEditServing(ing.servingG != null ? String(ing.servingG) : "");
         setEditNeverFlag(!!item.neverFlag);
         setDiaryDate(isoToday());
@@ -4317,13 +4320,20 @@ ${parseText}`;
           if (toType === "state" && p.trackingType !== "state") return { ...base, state: "have", quantity: null };
           return base;
         });
-        const macroVals = { cal: parseFloat(editCal), protein: parseFloat(editProtein), carbs: parseFloat(editCarbs), fat: parseFloat(editFat), fibre: parseFloat(editFibre) };
-        const hasMacros = !isNaN(macroVals.cal);
-        const per100g = hasMacros ? { cal: macroVals.cal||0, protein: macroVals.protein||0, carbs: macroVals.carbs||0, fat: macroVals.fat||0, fibre: macroVals.fibre||0 } : undefined;
+        // Macros are entered PER SERVING (from the label); convert to per-100g for storage.
+        const servG = parseFloat(editServing) > 0 ? parseFloat(editServing) : 100;
+        const ps = { cal: parseFloat(editCal), protein: parseFloat(editProtein), carbs: parseFloat(editCarbs), fat: parseFloat(editFat), fibre: parseFloat(editFibre) };
+        const hasMacros = !isNaN(ps.cal);
+        const per100g = hasMacros ? {
+          cal:     round((ps.cal||0)     / servG * 100),
+          protein: round((ps.protein||0) / servG * 100, 1),
+          carbs:   round((ps.carbs||0)   / servG * 100, 1),
+          fat:     round((ps.fat||0)     / servG * 100, 1),
+          fibre:   round((ps.fibre||0)   / servG * 100, 1),
+        } : undefined;
         const updatedIngs = ingredients.map(i => {
           if (i.id !== item.itemId) return i;
-          const servingG = parseFloat(editServing);
-          const base = { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit, ...(servingG > 0 ? { servingG } : {}) };
+          const base = { ...i, name: editName.trim() || i.name, category: editCat, defaultUnit: editUnit, ...(parseFloat(editServing) > 0 ? { servingG: parseFloat(editServing) } : {}) };
           return per100g ? { ...base, per100g } : base;
         });
         setData({ ...data, ingredients: updatedIngs, pantry: updatedPantry });
@@ -4656,8 +4666,14 @@ ${parseText}`;
                       style={{ background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none" }} />
                   </div>
                 </>)}
-                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>MACROS PER 100g <span style={{ color:S.dimmer,fontWeight:400 }}>(optional — enables logging)</span></div>
-                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:8 }}>
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>SERVING SIZE</div>
+                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
+                  <input type="text" inputMode="decimal" placeholder="e.g. 40" value={editServing} onChange={e=>setEditServing(e.target.value)}
+                    style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 10px",color:S.text,fontSize:12,outline:"none" }} />
+                  <span style={{ fontSize:9,color:S.dimmer,whiteSpace:"nowrap" }}>g per serving (from label)</span>
+                </div>
+                <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:5,fontWeight:600 }}>MACROS PER SERVING <span style={{ color:S.dimmer,fontWeight:400 }}>(enter the label values)</span></div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:12 }}>
                   {[["Cal",editCal,setEditCal],["Pro",editProtein,setEditProtein],["Crb",editCarbs,setEditCarbs],["Fat",editFat,setEditFat],["Fib",editFibre,setEditFibre]].map(([lbl,v,sv])=>(
                     <div key={lbl}>
                       <input type="text" inputMode="decimal" placeholder="0" value={v} onChange={e=>sv(e.target.value)}
@@ -4665,11 +4681,6 @@ ${parseText}`;
                       <div style={{ fontSize:8,color:S.dimmer,textAlign:"center",marginTop:2 }}>{lbl}</div>
                     </div>
                   ))}
-                </div>
-                <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-                  <input type="text" inputMode="decimal" placeholder="Serving size (g)" value={editServing} onChange={e=>setEditServing(e.target.value)}
-                    style={{ flex:1,background:S.panel2,border:"1px solid "+S.border,borderRadius:7,padding:"8px 10px",color:S.text,fontSize:12,outline:"none" }} />
-                  <span style={{ fontSize:9,color:S.dimmer,whiteSpace:"nowrap" }}>g per serving</span>
                 </div>
                 <button onClick={()=>setEditNeverFlag(v=>!v)} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", width:"100%", background:S.panel2, border:"1px solid "+S.border, borderRadius:8, padding:"10px 12px", marginBottom:12, cursor:"pointer" }}>
                   <span style={{ fontSize:12, color:S.text }}>Restocking alerts</span>
@@ -4683,7 +4694,7 @@ ${parseText}`;
                     <div style={{ borderTop:"1px solid "+S.border, marginTop:4, paddingTop:14, marginBottom:14 }}>
                       <div style={{ fontSize:9,letterSpacing:1.5,color:S.dim,marginBottom:8,fontWeight:600 }}>ADD TO DIARY</div>
                       {!hasMacros ? (
-                        <div style={{ fontSize:11,color:S.dimmer,lineHeight:1.4 }}>Set macros per 100g above and tap SAVE CHANGES first to enable diary logging.</div>
+                        <div style={{ fontSize:11,color:S.dimmer,lineHeight:1.4 }}>Set the serving size + macros above and tap SAVE CHANGES first to enable diary logging.</div>
                       ) : (<>
                         <input type="date" value={diaryDate} max={isoToday()} onChange={e=>e.target.value&&setDiaryDate(e.target.value)}
                           style={{ width:"100%",background:S.panel2,border:"1px solid "+S.border,borderRadius:8,padding:"9px 10px",color:S.text,fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box" }} />
