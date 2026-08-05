@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.27.0";
+    const VERSION = "v7.28.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -4285,6 +4285,7 @@ Return ONLY this JSON:
     function PantryTab({ data, setData, apiKey, onMissingKey }) {
       const [scanMode, setScanMode]     = useState(null);
       const [showFlagged, setShowFlagged] = useState(false);
+      const [pantrySearch, setPantrySearch] = useState("");
       const [expandedId, setExpandedId] = useState(null);
       const [editQtyId, setEditQtyId]   = useState(null);
       const [showAdd, setShowAdd]       = useState(false);
@@ -4602,15 +4603,17 @@ Return ONLY this JSON:
       }, [pantry, showFlagged, ingredients]);
 
       const grouped = useMemo(() => {
+        const q = pantrySearch.trim().toLowerCase();
+        const src = q ? displayPantry.filter(p => (getIng(p.itemId).name||"").toLowerCase().includes(q)) : displayPantry;
         const g = { freezer:[], fridge:[], pantry:[] };
-        displayPantry.forEach(p => { const c=(getIng(p.itemId).category||"pantry"); (g[c]||(g[c]=[])).push(p); });
+        src.forEach(p => { const c=(getIng(p.itemId).category||"pantry"); (g[c]||(g[c]=[])).push(p); });
         const byName = (a,b) => (getIng(a.itemId).name||"").toLowerCase().localeCompare((getIng(b.itemId).name||"").toLowerCase());
         const ord = { red:0, yellow:1, green:2, neutral:3 };
         Object.keys(g).forEach(k => g[k].sort(showFlagged
           ? (a,b) => ((ord[getStatus(a)]??3)-(ord[getStatus(b)]??3)) || byName(a,b)  // flagged first, then A–Z
           : byName));                                                                 // default: alphabetical
         return g;
-      }, [displayPantry, ingredients, showFlagged]);
+      }, [displayPantry, ingredients, showFlagged, pantrySearch]);
 
       const CAT_LABEL = { freezer:"❄️ FREEZER", fridge:"🧊 FRIDGE", pantry:"🫙 PANTRY" };
       const abtn = (active, lbl, onClick) => (
@@ -4629,6 +4632,13 @@ Return ONLY this JSON:
         <div>
           {/* Sticky controls */}
           <div style={{ position:"sticky", top:"60px", zIndex:10, background:S.bg, padding:"14px 16px 0" }}>
+          <div style={{ position:"relative", marginBottom:8 }}>
+            <input placeholder="🔍 Search pantry…" value={pantrySearch} onChange={e=>setPantrySearch(e.target.value)}
+              style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 34px 10px 12px", color:S.text, fontSize:14, outline:"none", boxSizing:"border-box" }} />
+            {pantrySearch && (
+              <button onClick={()=>setPantrySearch("")} style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:S.dim, fontSize:18, cursor:"pointer", padding:"0 6px", lineHeight:1 }}>×</button>
+            )}
+          </div>
           {addMsg && (
             <div onClick={()=>setAddMsg("")} style={{ background:`${S.green}1a`, border:`1px solid ${S.green}55`, color:S.green, borderRadius:8, padding:"8px 10px", marginBottom:8, fontSize:11, fontWeight:600, cursor:"pointer", textAlign:"center" }}>
               {addMsg}
