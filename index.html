@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.23.0";
+    const VERSION = "v7.24.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -788,6 +788,28 @@
           expiryNA: cat !== "fridge" });
       }
       return { ingredients: ings, pantry };
+    };
+
+    // Sum a recipe's ingredient macros and divide by servings → per-serving macros.
+    // Uses each row's explicit grams if present, else quantity × grams-per-unit.
+    // Returns null if no ingredient has macros (so we don't store a bogus all-zero).
+    const computePerServing = (rows, servings, ingredients) => {
+      const n = Math.max(1, Number(servings) || 1);
+      const tot = { cal:0, protein:0, carbs:0, fat:0, fibre:0 };
+      let any = false;
+      (rows || []).forEach(r => {
+        const ing = (ingredients || []).find(i => i.id === r.itemId);
+        if (!ing || !ing.per100g || ing.per100g.cal == null) return;
+        const grams = r.grams > 0 ? r.grams : (Number(r.quantity) || 0) * gramsPerUnit(r.unit, ing.servingG);
+        const m = scaleMacros(ing.per100g, grams);
+        tot.cal += m.cal; tot.protein += m.protein; tot.carbs += m.carbs; tot.fat += m.fat; tot.fibre += (m.fibre || 0);
+        any = true;
+      });
+      if (!any) return null;
+      return {
+        cal: round(tot.cal / n), protein: round(tot.protein / n, 1),
+        carbs: round(tot.carbs / n, 1), fat: round(tot.fat / n, 1), fibre: round(tot.fibre / n, 1),
+      };
     };
 
     const sumLogged = (logs, date, foods = []) => {
@@ -2887,12 +2909,15 @@
     };
 
     // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
-    function RecipeEditor({ recipe, ingredients, onSave, onCancel }) {
+    function RecipeEditor({ recipe, ingredients, onSave, onCancel, apiKey, onCreateIngredient }) {
       const [name, setName]             = useState(recipe.name || "");
       const [servings, setServings]     = useState(recipe.servings || 2);
       const [rows, setRows]             = useState(recipe.ingredients || []);
       const [instructions, setInstructions] = useState(recipe.instructions || "");
       const [ingSearch, setIngSearch]   = useState("");
+      const [adding, setAdding]         = useState(false);
+
+      const preview = useMemo(() => computePerServing(rows, servings, ingredients), [rows, servings, ingredients]);
 
       const ingResults = useMemo(() => {
         if (!ingSearch.trim()) return [];
@@ -2905,13 +2930,23 @@
         setRows(prev => [...prev, { itemId: ing.id, quantity: 100, unit: ing.defaultUnit || "g" }]);
         setIngSearch("");
       };
+      // Create a new registry ingredient from the typed text, then add it as a row.
+      const createAndAdd = async () => {
+        const nm = ingSearch.trim();
+        if (!nm || !onCreateIngredient) return;
+        setAdding(true);
+        const ing = await onCreateIngredient(nm);
+        setAdding(false);
+        if (ing) addIngredient(ing);
+      };
       const updateRow = (idx, field, val) =>
         setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
       const removeRow = (idx) => setRows(prev => prev.filter((_, i) => i !== idx));
 
       const save = () => {
         if (!name.trim() || rows.length === 0) return;
-        onSave({ ...recipe, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions });
+        const perServing = computePerServing(rows, servings, ingredients);
+        onSave({ ...recipe, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions, ...(perServing ? { perServing } : {}) });
       };
 
       const panelStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10 };
@@ -2965,18 +3000,23 @@
               <input placeholder="Add ingredient…" value={ingSearch}
                 onChange={e => setIngSearch(e.target.value)}
                 style={{ ...inputStyle }} />
-              {ingResults.length > 0 && (
+              {ingSearch.trim() && (
                 <div style={{ position:"absolute", left:0, right:0, top:"100%", background:S.bg,
-                  border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:180, overflowY:"auto" }}>
+                  border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:240, overflowY:"auto" }}>
                   {ingResults.map(ing => (
                     <button key={ing.id} onClick={() => addIngredient(ing)}
                       style={{ width:"100%", textAlign:"left", background:"none", border:"none",
                         color:S.text, padding:"10px 14px", fontSize:13, cursor:"pointer",
-                        borderBottom:"1px solid "+S.border }}>
-                      {ing.name}
-                      <span style={{ fontSize:11, color:S.dim, marginLeft:6 }}>{ing.defaultUnit}</span>
+                        borderBottom:"1px solid "+S.border, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      <span>{ing.name}<span style={{ fontSize:11, color:S.dim, marginLeft:6 }}>{ing.defaultUnit}</span></span>
+                      {(!ing.per100g || ing.per100g.cal == null) && <span style={{ fontSize:9, color:S.accent, letterSpacing:0.5 }}>NO MACROS</span>}
                     </button>
                   ))}
+                  <button onClick={createAndAdd} disabled={adding}
+                    style={{ width:"100%", textAlign:"left", background:S.panel2, border:"none",
+                      color:S.accent, padding:"11px 14px", fontSize:13, fontWeight:600, cursor: adding ? "default" : "pointer" }}>
+                    {adding ? "Adding + looking up macros…" : `＋ Add “${ingSearch.trim()}” as new ingredient`}
+                  </button>
                 </div>
               )}
             </div>
@@ -2984,7 +3024,20 @@
             {/* Instructions */}
             <textarea placeholder="Instructions (optional)" value={instructions}
               onChange={e => setInstructions(e.target.value)} rows={3}
-              style={{ ...inputStyle, resize:"vertical", marginBottom:16, fontFamily:"inherit" }} />
+              style={{ ...inputStyle, resize:"vertical", marginBottom:12, fontFamily:"inherit" }} />
+
+            {/* Live per-serving macro preview */}
+            <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:12, marginBottom:16 }}>
+              <div style={{ fontSize:9, letterSpacing:2, color:S.accent, marginBottom:8 }}>PER SERVING{preview ? "" : " — add ingredients with macros"}</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, textAlign:"center" }}>
+                {[["KCAL",preview?preview.cal:0,S.accent,""],["PRO",preview?preview.protein:0,S.green,"g"],["CRB",preview?preview.carbs:0,S.blue,"g"],["FAT",preview?preview.fat:0,S.purple,"g"],["FIB",preview?preview.fibre:0,S.dim,"g"]].map(([l,v,c,s]) => (
+                  <div key={l}>
+                    <div style={{ fontSize:16, fontWeight:600, color:c, fontFamily:"'DM Mono',monospace" }}>{v}<span style={{ fontSize:9, color:S.dim }}>{s}</span></div>
+                    <div style={{ fontSize:8, color:S.dim, letterSpacing:1, marginTop:2 }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Actions */}
             <div style={{ display:"flex", gap:10 }}>
@@ -3299,13 +3352,32 @@
         setData({ ...data, recipes: recipes.filter(r => r.id !== id) });
       };
 
+      // Create a brand-new registry ingredient by name (for the recipe editor), pulling
+      // macros via AI when a key is present so the recipe's per-serving totals are real.
+      const createIngredient = async (name) => {
+        const nm = (name || "").trim();
+        if (!nm) return null;
+        const existing = ingredients.find(i => (i.name || "").trim().toLowerCase() === nm.toLowerCase());
+        if (existing) return existing;
+        let extra = {};
+        if (apiKey) {
+          try {
+            const mac = await aiLookupMacros(apiKey, nm);
+            if (mac && mac.per100g) extra = { per100g: mac.per100g, ...(mac.servingG ? { servingG: mac.servingG } : {}), ...(mac.servingUnit ? { servingUnit: mac.servingUnit } : {}) };
+          } catch (e) {}
+        }
+        const ing = { id: uid("ing"), name: nm, defaultUnit: "g", category: "pantry", ...extra };
+        setData({ ...data, ingredients: [...ingredients, ing] });
+        return ing;
+      };
+
       const parseRecipe = async () => {
         if (!parseText.trim()) return;
         if (!apiKey) { onMissingKey(); return; }
         setParsing(true);
         try {
           const ingList = ingredients.map(i => `${i.id}: ${i.name}`).join("\n");
-          const prompt = `Parse this recipe and return ONLY a JSON object. Extract the name, number of servings (default 2), all ingredients with quantities/units, and any instructions.
+          const prompt = `Parse this recipe and return ONLY a JSON object. Extract the name, number of servings (default 2), all ingredients, and any instructions. For EACH ingredient give the quantity and unit as written, the total weight in grams for that amount, and typical per-100g macros.
 
 Known ingredient registry (match by name when possible, use the itemId):
 ${ingList}
@@ -3315,7 +3387,7 @@ Return format:
   "name": "Recipe Name",
   "servings": 2,
   "ingredients": [
-    {"itemId": "ing_xxx or null", "name": "ingredient name", "quantity": 100, "unit": "g"}
+    {"itemId": "ing_xxx or null", "name": "ingredient name", "quantity": 2, "unit": "cup", "grams": 240, "per100g": {"cal": 0, "protein": 0, "carbs": 0, "fat": 0, "fibre": 0}}
   ],
   "instructions": "brief steps if present"
 }
@@ -3324,8 +3396,8 @@ Recipe text:
 ${parseText}`;
           const resp = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
-            headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-            body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 1024,
+            headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+            body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2048,
               messages: [{ role: "user", content: prompt }] }),
           });
           const result = await resp.json();
@@ -3337,18 +3409,25 @@ ${parseText}`;
           // Create registry entries for unknown ingredients
           const newIngs = [...ingredients];
           const recipeRows = (parsed.ingredients || []).map(ing => {
+            const pm = ing.per100g && ing.per100g.cal != null
+              ? { cal:ing.per100g.cal||0, protein:ing.per100g.protein||0, carbs:ing.per100g.carbs||0, fat:ing.per100g.fat||0, fibre:ing.per100g.fibre||0 } : null;
             let itemId = ing.itemId;
             if (!itemId || !ingredients.find(i => i.id === itemId)) {
-              // Fuzzy match existing
               const nl = (ing.name || "").toLowerCase().trim();
               const found = newIngs.find(i => (i.name||"").toLowerCase().trim() === nl);  // exact only
               if (found) { itemId = found.id; }
               else {
                 itemId = uid("ing");
-                newIngs.push({ id: itemId, name: ing.name || "Unknown", defaultUnit: ing.unit || "g", category: "pantry" });
+                newIngs.push({ id: itemId, name: ing.name || "Unknown", defaultUnit: ing.unit || "g", category: "pantry", ...(pm ? { per100g: pm } : {}) });
               }
             }
-            return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g" };
+            // Backfill macros onto a matched ingredient that has none
+            if (pm) {
+              const idx2 = newIngs.findIndex(i => i.id === itemId);
+              if (idx2 >= 0 && (!newIngs[idx2].per100g || newIngs[idx2].per100g.cal == null))
+                newIngs[idx2] = { ...newIngs[idx2], per100g: pm };
+            }
+            return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g", ...(ing.grams > 0 ? { grams: Math.round(ing.grams) } : {}) };
           });
 
           // Persist new registry entries
@@ -3545,6 +3624,8 @@ ${parseText}`;
             <RecipeEditor
               recipe={editRecipe}
               ingredients={ingredients}
+              apiKey={apiKey}
+              onCreateIngredient={createIngredient}
               onSave={saveRecipe}
               onCancel={() => setEditRecipe(null)}
             />
