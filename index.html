@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.25.0";
+    const VERSION = "v7.26.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -2951,84 +2951,91 @@
 
       const panelStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10 };
       const inputStyle = { ...panelStyle, padding:"10px 12px", color:S.text, fontSize:13, outline:"none", width:"100%", boxSizing:"border-box" };
-      const btnSmall   = { background:"none", border:"1px solid "+S.dim, color:S.dim, borderRadius:6, padding:"3px 8px", fontSize:11, cursor:"pointer" };
+      const stepBtn    = { width:38, height:38, borderRadius:9, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:18, fontWeight:700, cursor:"pointer", flexShrink:0, lineHeight:1 };
+      const servN      = Math.max(1, Number(servings) || 1);
+      const wholeCal   = preview ? round(preview.cal * servN) : 0;
 
       return (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.72)", zIndex:200, overflowY:"auto", padding:"20px 16px 40px" }}>
-          <div style={{ background:S.bg, border:"1px solid "+S.border, borderRadius:16, padding:"20px 18px", maxWidth:480, margin:"0 auto" }}>
+        <div style={{ position:"fixed", inset:0, background:S.bg, zIndex:200, display:"flex", flexDirection:"column", paddingTop:"env(safe-area-inset-top)" }}>
+          {/* Sticky header */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"14px 16px", borderBottom:"1px solid "+S.border, flexShrink:0 }}>
+            <button onClick={onCancel} style={{ background:"none", border:"none", color:S.dim, fontSize:13, cursor:"pointer", letterSpacing:1 }}>CANCEL</button>
+            <div style={{ fontSize:11, letterSpacing:2, color:S.text, fontWeight:700 }}>{recipe.id ? "EDIT RECIPE" : "NEW RECIPE"}</div>
+            <button onClick={save} disabled={!name.trim() || rows.length === 0}
+              style={{ background:"none", border:"none", color: (!name.trim()||rows.length===0) ? S.dim : S.accent, fontSize:13, fontWeight:700, letterSpacing:1, cursor: (!name.trim()||rows.length===0) ? "default" : "pointer" }}>SAVE</button>
+          </div>
 
-            <div style={{ fontWeight:700, fontSize:15, color:S.text, marginBottom:16 }}>
-              {recipe.id ? "Edit Recipe" : "New Recipe"}
-            </div>
-
-            {/* Name + Servings */}
+          {/* Body */}
+          <div style={{ flex:1, overflowY:"auto", padding:"16px" }}>
             <input placeholder="Recipe name *" value={name} onChange={e => setName(e.target.value)}
-              style={{ ...inputStyle, marginBottom:10, fontSize:14 }} />
-            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-              <span style={{ fontSize:12, color:S.dim }}>Servings</span>
-              <input type="number" min="1" value={servings} onChange={e => setServings(e.target.value)}
-                style={{ ...inputStyle, width:70, textAlign:"center" }} />
+              style={{ ...inputStyle, marginBottom:12, fontSize:15 }} />
+
+            {/* Servings stepper */}
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
+              <span style={{ fontSize:12, color:S.dim, flex:1 }}>Servings it makes</span>
+              <button onClick={() => setServings(s => Math.max(1, (Number(s)||1) - 1))} style={stepBtn}>−</button>
+              <input type="text" inputMode="numeric" value={servings}
+                onChange={e => setServings(e.target.value)}
+                onBlur={() => { if (!(Number(servings) > 0)) setServings(1); }}
+                style={{ ...inputStyle, width:56, textAlign:"center", fontSize:16, fontWeight:600 }} />
+              <button onClick={() => setServings(s => (Number(s)||1) + 1)} style={stepBtn}>+</button>
             </div>
 
-            {/* Ingredient rows */}
-            {rows.length > 0 && (
-              <div style={{ marginBottom:10 }}>
-                <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:6 }}>INGREDIENTS</div>
-                {rows.map((row, idx) => {
-                  const ing = ingredients.find(i => i.id === row.itemId);
-                  return (
-                    <div key={idx} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
-                      <span style={{ flex:1, fontSize:13, color:S.text }}>{ing?.name || row.itemId}</span>
-                      <input type="number" min="0" value={row.quantity}
-                        onChange={e => updateRow(idx, "quantity", parseFloat(e.target.value) || 0)}
-                        style={{ width:64, background:S.panel, border:"1px solid "+S.border, borderRadius:8,
-                          padding:"6px 8px", color:S.text, fontSize:13, outline:"none", textAlign:"right" }} />
-                      <input type="text" value={row.unit}
-                        onChange={e => updateRow(idx, "unit", e.target.value)}
-                        style={{ width:44, background:S.panel, border:"1px solid "+S.border, borderRadius:8,
-                          padding:"6px 6px", color:S.text, fontSize:12, outline:"none" }} />
-                      <button onClick={() => removeRow(idx)}
-                        style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 2px" }}>×</button>
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Ingredients */}
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>INGREDIENTS · {rows.length}</div>
+            {rows.length === 0 && (
+              <div style={{ fontSize:12, color:S.dimmer, padding:"2px 2px 12px", lineHeight:1.4 }}>Search below to add ingredients — or back out and start from a photo.</div>
             )}
+            {rows.map((row, idx) => {
+              const ing = ingredients.find(i => i.id === row.itemId);
+              const has = ing && ing.per100g && ing.per100g.cal != null;
+              const grams = row.grams > 0 ? row.grams : (Number(row.quantity)||0) * gramsPerUnit(row.unit, ing?.servingG);
+              const cm = has ? scaleMacros(ing.per100g, grams) : null;
+              return (
+                <div key={idx} style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"9px 10px", marginBottom:6 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    <span style={{ flex:1, fontSize:13, color:S.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ing?.name || row.itemId}</span>
+                    <input type="text" inputMode="decimal" value={row.quantity}
+                      onChange={e => updateRow(idx, "quantity", parseFloat(e.target.value) || 0)}
+                      style={{ width:54, background:S.panel2, border:"1px solid "+S.border, borderRadius:7, padding:"6px 6px", color:S.text, fontSize:13, outline:"none", textAlign:"right" }} />
+                    <input type="text" value={row.unit}
+                      onChange={e => updateRow(idx, "unit", e.target.value)}
+                      style={{ width:42, background:S.panel2, border:"1px solid "+S.border, borderRadius:7, padding:"6px 5px", color:S.text, fontSize:12, outline:"none" }} />
+                    <button onClick={() => removeRow(idx)} style={{ background:"none", border:"none", color:S.dimmer, fontSize:18, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>×</button>
+                  </div>
+                  <div style={{ fontSize:10, color: cm ? S.dim : S.accent, marginTop:3, fontFamily:"'DM Mono',monospace" }}>
+                    {cm ? `${round(grams)}g · ${round(cm.cal)} kcal · ${round(cm.protein,1)}P · ${round(cm.carbs,1)}C · ${round(cm.fat,1)}F` : "⚠ no macros for this item"}
+                  </div>
+                </div>
+              );
+            })}
 
             {/* Ingredient search */}
-            <div style={{ position:"relative", marginBottom:10 }}>
-              <input placeholder="Add ingredient…" value={ingSearch}
-                onChange={e => setIngSearch(e.target.value)}
-                style={{ ...inputStyle }} />
+            <div style={{ position:"relative", margin:"8px 0 16px" }}>
+              <input placeholder="Add ingredient…" value={ingSearch} onChange={e => setIngSearch(e.target.value)} style={{ ...inputStyle }} />
               {ingSearch.trim() && (
-                <div style={{ position:"absolute", left:0, right:0, top:"100%", background:S.bg,
-                  border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:240, overflowY:"auto" }}>
+                <div style={{ position:"absolute", left:0, right:0, top:"100%", background:S.bg, border:"1px solid "+S.border, borderRadius:10, zIndex:10, maxHeight:240, overflowY:"auto" }}>
                   {ingResults.map(ing => (
                     <button key={ing.id} onClick={() => addIngredient(ing)}
-                      style={{ width:"100%", textAlign:"left", background:"none", border:"none",
-                        color:S.text, padding:"10px 14px", fontSize:13, cursor:"pointer",
-                        borderBottom:"1px solid "+S.border, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                      style={{ width:"100%", textAlign:"left", background:"none", border:"none", color:S.text, padding:"10px 14px", fontSize:13, cursor:"pointer", borderBottom:"1px solid "+S.border, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span>{ing.name}<span style={{ fontSize:11, color:S.dim, marginLeft:6 }}>{ing.defaultUnit}</span></span>
                       {(!ing.per100g || ing.per100g.cal == null) && <span style={{ fontSize:9, color:S.accent, letterSpacing:0.5 }}>NO MACROS</span>}
                     </button>
                   ))}
                   <button onClick={createAndAdd} disabled={adding}
-                    style={{ width:"100%", textAlign:"left", background:S.panel2, border:"none",
-                      color:S.accent, padding:"11px 14px", fontSize:13, fontWeight:600, cursor: adding ? "default" : "pointer" }}>
+                    style={{ width:"100%", textAlign:"left", background:S.panel2, border:"none", color:S.accent, padding:"11px 14px", fontSize:13, fontWeight:600, cursor: adding ? "default" : "pointer" }}>
                     {adding ? "Adding + looking up macros…" : `＋ Add “${ingSearch.trim()}” as new ingredient`}
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Instructions */}
-            <textarea placeholder="Instructions (optional)" value={instructions}
-              onChange={e => setInstructions(e.target.value)} rows={3}
-              style={{ ...inputStyle, resize:"vertical", marginBottom:12, fontFamily:"inherit" }} />
-
-            {/* Live per-serving macro preview */}
+            {/* Totals */}
             <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:12, marginBottom:16 }}>
-              <div style={{ fontSize:9, letterSpacing:2, color:S.accent, marginBottom:8 }}>PER SERVING{preview ? "" : " — add ingredients with macros"}</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:8 }}>
+                <span style={{ fontSize:9, letterSpacing:2, color:S.accent }}>PER SERVING</span>
+                <span style={{ fontSize:9, color:S.dim }}>{preview ? `whole recipe ≈ ${wholeCal} kcal` : "add ingredients with macros"}</span>
+              </div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, textAlign:"center" }}>
                 {[["KCAL",preview?preview.cal:0,S.accent,""],["PRO",preview?preview.protein:0,S.green,"g"],["CRB",preview?preview.carbs:0,S.blue,"g"],["FAT",preview?preview.fat:0,S.purple,"g"],["FIB",preview?preview.fibre:0,S.dim,"g"]].map(([l,v,c,s]) => (
                   <div key={l}>
@@ -3039,16 +3046,15 @@
               </div>
             </div>
 
-            {/* Actions */}
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={onCancel} style={{ ...btnSmall, flex:1, padding:"12px" }}>CANCEL</button>
-              <button onClick={save} disabled={!name.trim() || rows.length === 0}
-                style={{ flex:2, background: (!name.trim()||rows.length===0) ? S.border : S.accent,
-                  color:"#0a0c0f", border:"none", borderRadius:10, padding:"12px",
-                  fontSize:12, fontWeight:700, letterSpacing:1, cursor: (!name.trim()||rows.length===0) ? "default" : "pointer" }}>
-                SAVE RECIPE
-              </button>
-            </div>
+            {/* Instructions */}
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:6 }}>INSTRUCTIONS</div>
+            <textarea placeholder="Steps (optional)" value={instructions} onChange={e => setInstructions(e.target.value)} rows={4}
+              style={{ ...inputStyle, resize:"vertical", marginBottom:24, fontFamily:"inherit" }} />
+
+            <button onClick={save} disabled={!name.trim() || rows.length === 0}
+              style={{ width:"100%", background: (!name.trim()||rows.length===0) ? S.border : S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"14px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor: (!name.trim()||rows.length===0) ? "default" : "pointer" }}>
+              SAVE RECIPE
+            </button>
           </div>
         </div>
       );
@@ -3067,6 +3073,8 @@
       const [diaryServings, setDiaryServings] = useState("1");
       const [diaryMsg, setDiaryMsg]     = useState("");
       const csvFileRef = useRef(null);
+      const photoRef   = useRef(null);
+      const [showPaste, setShowPaste] = useState(false);
 
       const recipes     = data.recipes     || [];
       const ingredients = data.ingredients || [];
@@ -3371,18 +3379,41 @@
         return ing;
       };
 
-      const parseRecipe = async () => {
-        if (!parseText.trim()) return;
-        if (!apiKey) { onMissingKey(); return; }
-        setParsing(true);
-        try {
-          const ingList = ingredients.map(i => `${i.id}: ${i.name}`).join("\n");
-          const prompt = `Parse this recipe and return ONLY a JSON object. Extract the name, number of servings (default 2), all ingredients, and any instructions. For EACH ingredient give the quantity and unit as written, the total weight in grams for that amount, and typical per-100g macros.
+      const friendlyErr = (e) => {
+        const m = (e && e.message) || "failed";
+        if (/failed to fetch|networkerror|load failed/i.test(m))
+          return "couldn't reach the AI service. Check your connection and disable any VPN / ad-blocker for this site, then retry.";
+        return m;
+      };
+      const extractJSON = (txt) => {
+        const m = (txt || "").match(/\{[\s\S]*\}/);
+        if (!m) throw new Error("the AI didn't return a recipe. Try a clearer photo or paste the text.");
+        return JSON.parse(m[0]);
+      };
+      const callAnthropic = async (content, maxTokens) => {
+        const resp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content }] }),
+        });
+        if (!resp.ok) {
+          const t = await resp.text().catch(() => "");
+          if (resp.status === 401) throw new Error("API key rejected (401). Re-paste your key in Settings (⋯).");
+          throw new Error("API error " + resp.status + (t ? ": " + t.slice(0, 140) : ""));
+        }
+        const j = await resp.json();
+        return j.content?.[0]?.text || "";
+      };
+
+      // Shared "return a recipe as JSON" instruction (includes the known-ingredient list).
+      const buildRecipeSpec = () => {
+        const ingList = ingredients.map(i => `${i.id}: ${i.name}`).join("\n");
+        return `Extract the recipe name, number of servings (default 2), all ingredients, and any instructions. For EACH ingredient give the quantity and unit as written, the total weight in grams for that amount, and typical per-100g macros.
 
 Known ingredient registry (match by name when possible, use the itemId):
 ${ingList}
 
-Return format:
+Return ONLY this JSON:
 {
   "name": "Recipe Name",
   "servings": 2,
@@ -3390,63 +3421,81 @@ Return format:
     {"itemId": "ing_xxx or null", "name": "ingredient name", "quantity": 2, "unit": "cup", "grams": 240, "per100g": {"cal": 0, "protein": 0, "carbs": 0, "fat": 0, "fibre": 0}}
   ],
   "instructions": "brief steps if present"
-}
+}`;
+      };
 
-Recipe text:
-${parseText}`;
-          const resp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
-            body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2048,
-              messages: [{ role: "user", content: prompt }] }),
-          });
-          const result = await resp.json();
-          const text = result.content?.[0]?.text || "";
-          const match = text.match(/\{[\s\S]*\}/);
-          if (!match) throw new Error("No JSON in response");
-          const parsed = JSON.parse(match[0]);
-
-          // Create registry entries for unknown ingredients
-          const newIngs = [...ingredients];
-          const recipeRows = (parsed.ingredients || []).map(ing => {
-            const pm = ing.per100g && ing.per100g.cal != null
-              ? { cal:ing.per100g.cal||0, protein:ing.per100g.protein||0, carbs:ing.per100g.carbs||0, fat:ing.per100g.fat||0, fibre:ing.per100g.fibre||0 } : null;
-            let itemId = ing.itemId;
-            if (!itemId || !ingredients.find(i => i.id === itemId)) {
-              const nl = (ing.name || "").toLowerCase().trim();
-              const found = newIngs.find(i => (i.name||"").toLowerCase().trim() === nl);  // exact only
-              if (found) { itemId = found.id; }
-              else {
-                itemId = uid("ing");
-                newIngs.push({ id: itemId, name: ing.name || "Unknown", defaultUnit: ing.unit || "g", category: "pantry", ...(pm ? { per100g: pm } : {}) });
-              }
+      // Parsed-recipe JSON → registry ingredients (with macros) + open the editor pre-filled.
+      const applyParsedRecipe = (parsed) => {
+        const newIngs = [...ingredients];
+        let ingsChanged = false;
+        const recipeRows = (parsed.ingredients || []).map(ing => {
+          const pm = ing.per100g && ing.per100g.cal != null
+            ? { cal:ing.per100g.cal||0, protein:ing.per100g.protein||0, carbs:ing.per100g.carbs||0, fat:ing.per100g.fat||0, fibre:ing.per100g.fibre||0 } : null;
+          let itemId = ing.itemId;
+          if (!itemId || !ingredients.find(i => i.id === itemId)) {
+            const nl = (ing.name || "").toLowerCase().trim();
+            const found = newIngs.find(i => (i.name||"").toLowerCase().trim() === nl);  // exact only
+            if (found) { itemId = found.id; }
+            else {
+              itemId = uid("ing");
+              newIngs.push({ id: itemId, name: ing.name || "Unknown", defaultUnit: ing.unit || "g", category: "pantry", ...(pm ? { per100g: pm } : {}) });
+              ingsChanged = true;
             }
-            // Backfill macros onto a matched ingredient that has none
-            if (pm) {
-              const idx2 = newIngs.findIndex(i => i.id === itemId);
-              if (idx2 >= 0 && (!newIngs[idx2].per100g || newIngs[idx2].per100g.cal == null))
-                newIngs[idx2] = { ...newIngs[idx2], per100g: pm };
+          }
+          if (pm) {
+            const idx2 = newIngs.findIndex(i => i.id === itemId);
+            if (idx2 >= 0 && (!newIngs[idx2].per100g || newIngs[idx2].per100g.cal == null)) {
+              newIngs[idx2] = { ...newIngs[idx2], per100g: pm };
+              ingsChanged = true;
             }
-            return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g", ...(ing.grams > 0 ? { grams: Math.round(ing.grams) } : {}) };
-          });
+          }
+          return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g", ...(ing.grams > 0 ? { grams: Math.round(ing.grams) } : {}) };
+        });
+        if (ingsChanged) setData({ ...data, ingredients: newIngs });
+        setEditRecipe({
+          name: parsed.name || "Unnamed Recipe",
+          servings: parsed.servings || 2,
+          ingredients: recipeRows,
+          instructions: parsed.instructions || "",
+        });
+      };
 
-          // Persist new registry entries
-          const updData = newIngs.length !== ingredients.length
-            ? { ...data, ingredients: newIngs }
-            : data;
-          if (updData !== data) setData(updData);
-
-          setEditRecipe({
-            name: parsed.name || "Unnamed Recipe",
-            servings: parsed.servings || 2,
-            ingredients: recipeRows,
-            instructions: parsed.instructions || "",
-          });
-          setParseText("");
+      const parseRecipe = async () => {
+        if (!parseText.trim()) return;
+        if (!apiKey) { onMissingKey(); return; }
+        setParsing(true);
+        try {
+          const txt = await callAnthropic(`Parse this recipe. ${buildRecipeSpec()}\n\nRecipe text (may be a URL — use it if you recognise the recipe):\n${parseText}`, 2048);
+          applyParsedRecipe(extractJSON(txt));
+          setParseText(""); setShowPaste(false);
         } catch (e) {
-          alert("Parse failed: " + e.message);
+          alert("Parse failed: " + friendlyErr(e));
         }
         setParsing(false);
+      };
+
+      const parseRecipeFromImage = async (dataUrl) => {
+        if (!apiKey) { onMissingKey(); return; }
+        setParsing(true);
+        try {
+          const base64 = dataUrl.split(",")[1];
+          const mimeType = (dataUrl.match(/data:(.*?);/) || [])[1] || "image/jpeg";
+          const content = [
+            { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } },
+            { type: "text", text: `Read the recipe shown in this image. ${buildRecipeSpec()}` },
+          ];
+          applyParsedRecipe(extractJSON(await callAnthropic(content, 2048)));
+        } catch (e) {
+          alert("Couldn't read that photo: " + friendlyErr(e));
+        }
+        setParsing(false);
+      };
+
+      const parseImageFile = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => parseRecipeFromImage(reader.result);
+        reader.readAsDataURL(file);
       };
 
       const inputStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10,
@@ -3494,21 +3543,40 @@ ${parseText}`;
             </div>
           </div>
 
-          {/* ── AI Parse ── */}
+          {/* ── Create from photo / text ── */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
-            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>AI RECIPE PARSER</div>
-            <textarea placeholder="Paste recipe text here (ingredients, quantities, instructions)…"
-              value={parseText} onChange={e => setParseText(e.target.value)} rows={4}
-              style={{ width:"100%", background:S.bg, border:"1px solid "+S.border, borderRadius:8,
-                padding:"10px", color:S.text, fontSize:13, outline:"none", resize:"vertical",
-                fontFamily:"inherit", boxSizing:"border-box", marginBottom:8 }} />
-            <button onClick={parseRecipe} disabled={parsing || !parseText.trim()}
-              style={{ background: (parsing||!parseText.trim()) ? S.border : S.accent,
-                color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 18px",
-                fontSize:12, fontWeight:700, letterSpacing:1,
-                cursor: (parsing||!parseText.trim()) ? "default" : "pointer" }}>
-              {parsing ? "PARSING…" : "🤖 PARSE RECIPE"}
-            </button>
+            <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>CREATE WITH AI</div>
+            <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) parseImageFile(f); e.target.value=""; }} />
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => { if (!apiKey) { onMissingKey(); return; } photoRef.current?.click(); }} disabled={parsing}
+                style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"11px 6px", fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:parsing?"default":"pointer", opacity:parsing?0.7:1 }}>
+                {parsing ? "READING…" : "📷 FROM PHOTO"}
+              </button>
+              <button onClick={() => setShowPaste(v => !v)}
+                style={{ flex:1, background:showPaste?`${S.accent}22`:S.panel2, color:showPaste?S.accent:S.text, border:`1px solid ${showPaste?S.accent:S.border}`, borderRadius:8, padding:"11px 6px", fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
+                📋 PASTE TEXT
+              </button>
+            </div>
+            <div style={{ fontSize:10, color:S.dim, marginTop:8, lineHeight:1.4 }}>
+              Snap a recipe card, cookbook page, or screenshot — AI fills in ingredients + macros for you to review.
+            </div>
+            {showPaste && (
+              <>
+                <textarea placeholder="Paste recipe text (or a URL)…"
+                  value={parseText} onChange={e => setParseText(e.target.value)} rows={4}
+                  style={{ width:"100%", background:S.bg, border:"1px solid "+S.border, borderRadius:8,
+                    padding:"10px", color:S.text, fontSize:13, outline:"none", resize:"vertical",
+                    fontFamily:"inherit", boxSizing:"border-box", margin:"10px 0 8px" }} />
+                <button onClick={parseRecipe} disabled={parsing || !parseText.trim()}
+                  style={{ background: (parsing||!parseText.trim()) ? S.border : S.accent,
+                    color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 18px",
+                    fontSize:12, fontWeight:700, letterSpacing:1,
+                    cursor: (parsing||!parseText.trim()) ? "default" : "pointer" }}>
+                  {parsing ? "PARSING…" : "🤖 PARSE"}
+                </button>
+              </>
+            )}
           </div>
 
           {/* ── Recipe list ── */}
