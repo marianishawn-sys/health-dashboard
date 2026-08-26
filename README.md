@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.28.0
+# Nutrition Concierge — v7.29.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.29.0 — Data-safety / resilience
+- **Device backup:** every change is mirrored to localStorage BEFORE the Drive write, so a failed save can't lose it. If a reload finds the local backup NEWER than Drive (saves had been failing), it keeps local + pushes it up; if the Drive READ fails (token broke), it falls back to the local backup instead of going empty.
+- `writeDriveFile` now checks `res.ok` and throws the real HTTP status (no silent "saved" on a failed write); writes compact JSON.
+- **Settings → DATA BACKUP:** EXPORT all data to a file, RESTORE from a backup file.
 
 ### v7.28.0 — Pantry search bar
 - A search box at the top of the Pantry tab filters freezer/fridge/pantry lists **live** as you type (substring on item name). Category headings for non-empty groups stay; empty ones hide. Clear (×) resets.
