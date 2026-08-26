@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.28.0";
+    const VERSION = "v7.29.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -379,12 +379,20 @@
     };
 
     const writeDriveFile = async (id, data) => {
-      return driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media", {
+      const res = await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data, null, 2),
+        body: JSON.stringify(data),   // compact (smaller upload than pretty-printed)
       });
+      if (!res.ok) throw new Error("Drive write failed (HTTP " + res.status + ")");  // surface real errors instead of silent success
+      return res;
     };
+
+    // Local (device) backup of the data — survives reloads so unsaved work isn't lost
+    // if Drive is unreachable. Kept in sync by saveData / loadData.
+    const LOCAL_BACKUP_KEY = "nc_data_backup";
+    const readLocalBackup = () => { try { return JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY) || "null"); } catch (e) { return null; } };
+    const writeLocalBackup = (d) => { try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(d)); } catch (e) {} };
 
     // ───────────────────── DATA MIGRATION ─────────────────────
     const migrateToV2 = (data) => {
@@ -992,15 +1000,27 @@
             keyChanged = true;
           }
 
-          setData(afterCoach);
+          // Resilience: if this device has a LOCAL backup NEWER than Drive (its saves had
+          // been failing), keep the local copy and push it up — don't lose unsaved work.
+          let finalData = afterCoach, localNewer = false;
+          const localBak = readLocalBackup();
+          if (localBak && localBak.lastModified && (!afterCoach.lastModified || localBak.lastModified > afterCoach.lastModified)) {
+            finalData = localBak; localNewer = true;
+          }
+          setData(finalData);
+          writeLocalBackup(finalData);
 
-          const needsSave = !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
+          const needsSave = localNewer || !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
             || migrated !== v4 || migratedIngs !== migrated || coachChanged || keyChanged;
           if (needsSave) {
-            await writeDriveFile(fileId, afterCoach);
+            await writeDriveFile(fileId, finalData);
           }
         } catch (e) {
           console.error("Load failed", e);
+          // Drive unreachable (e.g. the token broke): fall back to the last device backup
+          // so the app keeps the user's data instead of going empty.
+          const localBak = readLocalBackup();
+          if (localBak) setData(localBak);
         }
         setLoading(false);
       };
@@ -1068,6 +1088,7 @@
       const saveData = useCallback((newData, immediate=false) => {
         const next = { ...newData, lastModified: new Date().toISOString() };
         setData(next);
+        writeLocalBackup(next);   // device backup FIRST, so a failed Drive write can't lose it
         setSyncStatus("saving");
         if (saveTimer.current) clearTimeout(saveTimer.current);
         const doWrite = async () => {
@@ -5100,6 +5121,30 @@ Return ONLY this JSON:
       const [showKey, setShowKey] = useState(false);
       const [showKeyInput, setShowKeyInput] = useState(!apiKey);
       const [importMode, setImportMode] = useState(null); // null | "mfp"
+      const fileRef = useRef(null);
+
+      const exportData = () => {
+        const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "nutrition-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.click();
+      };
+      const importData = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const d = JSON.parse(reader.result);
+            if (!d || !Array.isArray(d.foods)) { alert("That doesn't look like a Nutrition Concierge backup."); return; }
+            if (!confirm("Restore this backup? It REPLACES your current data (and saves to Drive).")) return;
+            setData(d);
+            alert("Restored ✓");
+            onClose();
+          } catch (e) { alert("Couldn't read that file: " + e.message); }
+        };
+        reader.readAsText(file);
+      };
 
       if (importMode === "mfp") {
         return <MFPImport apiKey={apiKey} data={data} setData={setData}
@@ -5120,6 +5165,18 @@ Return ONLY this JSON:
                 <Stat label="USED" value={(data.foods || []).filter(f => f.useCount > 0).length} />
                 <Stat label="CUSTOM" value={(data.foods || []).filter(f => f.source !== "seed").length} />
               </div>
+            </div>
+
+            {/* Data backup / restore */}
+            <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:14, marginBottom:10 }}>
+              <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:8 }}>DATA BACKUP</div>
+              <input ref={fileRef} type="file" accept=".json,application/json" style={{ display:"none" }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value=""; }} />
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={exportData} style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, color:S.text, borderRadius:8, padding:"10px", fontSize:12, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>⤓ EXPORT</button>
+                <button onClick={() => fileRef.current?.click()} style={{ flex:1, background:S.panel2, border:"1px solid "+S.border, color:S.text, borderRadius:8, padding:"10px", fontSize:12, fontWeight:600, letterSpacing:0.5, cursor:"pointer" }}>⤒ RESTORE</button>
+              </div>
+              <div style={{ fontSize:10, color:S.dim, marginTop:6, lineHeight:1.4 }}>Export saves all your data to a file. Restore replaces everything from a backup file.</div>
             </div>
 
             <button onClick={() => apiKey ? setImportMode("mfp") : alert("Add Anthropic API key first")}
