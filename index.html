@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.30.0";
+    const VERSION = "v7.31.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -2035,16 +2035,17 @@
                     </button>
                   ))}
 
-                  {/* 1b. Recipes (loggable by servings) */}
-                  {recipeMatches.map(r => (
-                    <button key={r.id} onClick={() => pickRecipe(r)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                  {/* 1b. Pantry items without macros (still highest priority) */}
+                  {pantryStubs.map(ing => (
+                    <button key={ing.id} onClick={() => { setPrefillName(ing.name); setMode("manual"); }}
+                      style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}33`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
-                          per serving: {round(r.perServing.cal)}kcal · {round(r.perServing.protein,1)}P · {round(r.perServing.carbs,1)}C · {round(r.perServing.fat,1)}F
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                          {ing.name}
                         </div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>Add macros to log this pantry item</div>
                       </div>
-                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🍳 RECIPE</div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
                     </button>
                   ))}
 
@@ -2076,17 +2077,16 @@
                     </div>
                   ))}
 
-                  {/* 3. Pantry items without macros (prompt to add) */}
-                  {pantryStubs.map(ing => (
-                    <button key={ing.id} onClick={() => { setPrefillName(ing.name); setMode("manual"); }}
-                      style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}33`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                  {/* 3. Recipes (loggable by servings) */}
+                  {recipeMatches.map(r => (
+                    <button key={r.id} onClick={() => pickRecipe(r)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                          {ing.name}
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per serving: {round(r.perServing.cal)}kcal · {round(r.perServing.protein,1)}P · {round(r.perServing.carbs,1)}C · {round(r.perServing.fat,1)}F
                         </div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2 }}>Add macros to log this pantry item</div>
                       </div>
-                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🍳 RECIPE</div>
                     </button>
                   ))}
 
