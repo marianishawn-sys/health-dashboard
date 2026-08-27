@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.30.0
+# Nutrition Concierge — v7.31.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.31.0 — Meal search order: pantry at the top
+- Reordered meal-search results so 🫙 pantry leads: pantry (macros) → pantry (needs macros) → previously-logged → 🍳 recipes.
 
 ### v7.30.0 — Recipes loggable from the meal search
 - Searching to add a food to a meal now shows a **🍳 RECIPES** section (recipes with per-serving macros matching the query), alongside 🫙 PANTRY and logged foods. Tap one → servings picker (stepper + 0.5/1/2/3 presets + live macro preview) → logs perServing × servings. New `RecipeLog` component + `logRecipeEntry`; FoodPicker gains `onLogRecipe`.
