@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.29.0
+# Nutrition Concierge — v7.30.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.30.0 — Recipes loggable from the meal search
+- Searching to add a food to a meal now shows a **🍳 RECIPES** section (recipes with per-serving macros matching the query), alongside 🫙 PANTRY and logged foods. Tap one → servings picker (stepper + 0.5/1/2/3 presets + live macro preview) → logs perServing × servings. New `RecipeLog` component + `logRecipeEntry`; FoodPicker gains `onLogRecipe`.
 
 ### v7.29.0 — Data-safety / resilience
 - **Device backup:** every change is mirrored to localStorage BEFORE the Drive write, so a failed save can't lose it. If a reload finds the local backup NEWER than Drive (saves had been failing), it keeps local + pushes it up; if the Drive READ fails (token broke), it falls back to the local backup instead of going empty.
