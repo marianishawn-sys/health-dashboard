@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.29.0";
+    const VERSION = "v7.30.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -1203,6 +1203,21 @@
         });
       };
 
+      // Log a recipe (perServing × servings) to a meal — used by the food picker's RECIPES section.
+      const logRecipeEntry = (slot, recipe, servings) => {
+        const ps = recipe.perServing; if (!ps) return;
+        const n = Math.max(0.01, Number(servings) || 1);
+        const entry = {
+          id: uid("log"), name: recipe.name, brand: recipe.servingLabel || "", recipeId: recipe.id,
+          grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings",
+          cal: round((ps.cal||0)*n), protein: round((ps.protein||0)*n,1), carbs: round((ps.carbs||0)*n,1),
+          fat: round((ps.fat||0)*n,1), fibre: round((ps.fibre||0)*n,1),
+          source: "recipe", ts: new Date().toISOString(),
+        };
+        const day = data.logs[selectedDate] || {};
+        saveData({ ...data, logs: { ...data.logs, [selectedDate]: { ...day, [slot]: [...(day[slot] || []), entry] } } });
+      };
+
       const addFoodToLibrary = (food) => {
         const newFood = { ...food, id: food.id || uid("f"), lastUsed: null, useCount: 0 };
         saveData({ ...data, foods: upsertFood(newFood) });
@@ -1423,6 +1438,7 @@
               onMissingKey={() => { setShowFoodPicker(false); setShowSettings(true); }}
               onClose={() => setShowFoodPicker(false)}
               onLog={(food, grams, notes, opts) => { useFood(foodPickerSlot, food, grams, notes, opts); setShowFoodPicker(false); }}
+              onLogRecipe={(recipe, servings) => { logRecipeEntry(foodPickerSlot, recipe, servings); setShowFoodPicker(false); }}
               onAddNewFood={(food) => addFoodToLibrary(food)}
               onLogAll={(foods) => logMultipleScanned(foodPickerSlot, foods)}
               onDeleteFood={(food) => saveData({ ...data, foods: (data.foods || []).filter(f => f.id !== food.id) })}
@@ -1775,11 +1791,12 @@
     }
 
     // ───────────────────── FOOD PICKER ─────────────────────
-    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onAddNewFood, onLogAll, onDeleteFood, onAddToPantry }) {
+    function FoodPicker({ data, slot, apiKey, onMissingKey, onClose, onLog, onLogRecipe, onAddNewFood, onLogAll, onDeleteFood, onAddToPantry }) {
       const [pantryAdded, setPantryAdded] = useState(() => new Set());
       const [query, setQuery] = useState("");
       const [mode, setMode] = useState("search"); // search | manual | scan | portion
       const [selectedFood, setSelectedFood] = useState(null);
+      const [selectedRecipe, setSelectedRecipe] = useState(null);
       const [prefillName, setPrefillName] = useState("");
       const [offResults, setOffResults] = useState(null); // null=idle, []=no results, [...]
       const [offLoading, setOffLoading] = useState(false);
@@ -1829,13 +1846,23 @@
         };
       }, [data.ingredients, data.foods, query]);
 
+      const recipeMatches = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (q.length < 2) return [];
+        return (data.recipes || [])
+          .filter(r => r.perServing && r.perServing.cal != null && (r.name || "").toLowerCase().includes(q))
+          .slice(0, 12);
+      }, [data.recipes, query]);
+
+      const pickRecipe = (r) => { setSelectedRecipe(r); setMode("recipe"); };
+
       const pickFood = (f) => {
         setSelectedFood(f);
         setMode("portion");
       };
 
       const searchOFF = async () => {
-        if (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0) return;
+        if (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0 || recipeMatches.length > 0) return;
         const q = query.trim();
         if (!q) return;
         setOffLoading(true);
@@ -1933,6 +1960,15 @@
               />
             )}
 
+            {mode === "recipe" && selectedRecipe && (
+              <RecipeLog
+                recipe={selectedRecipe}
+                slot={slot}
+                onCancel={() => { setSelectedRecipe(null); setMode("search"); }}
+                onLog={(servings) => onLogRecipe(selectedRecipe, servings)}
+              />
+            )}
+
             {mode === "manual" && (
               <ManualEntry
                 onCancel={() => { setPrefillName(""); setMode("search"); }}
@@ -1982,7 +2018,7 @@
                 </div>
 
                 <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
-                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + results.length}
+                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + recipeMatches.length + results.length}
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
@@ -1996,6 +2032,19 @@
                         </div>
                       </div>
                       <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🫙 PANTRY</div>
+                    </button>
+                  ))}
+
+                  {/* 1b. Recipes (loggable by servings) */}
+                  {recipeMatches.map(r => (
+                    <button key={r.id} onClick={() => pickRecipe(r)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per serving: {round(r.perServing.cal)}kcal · {round(r.perServing.protein,1)}P · {round(r.perServing.carbs,1)}C · {round(r.perServing.fat,1)}F
+                        </div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🍳 RECIPE</div>
                     </button>
                   ))}
 
@@ -2042,7 +2091,7 @@
                   ))}
 
                   {/* 4. Internet fallback (lowest priority — only when nothing local) */}
-                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && (
+                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && recipeMatches.length === 0 && (
                     <div style={{ marginBottom:12 }}>
                       {query.trim().length < 3 && (
                         <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
@@ -2360,6 +2409,58 @@
               DELETE ENTRY
             </button>
           )}
+        </div>
+      );
+    }
+
+    // ───────────────────── RECIPE LOG (log a recipe by servings) ─────────────────────
+    function RecipeLog({ recipe, slot, onCancel, onLog }) {
+      const ps = recipe.perServing || {};
+      const [servStr, setServStr] = useState("1");
+      const n = parseFloat(servStr) || 0;
+      const m = { cal: round((ps.cal||0)*n), protein: round((ps.protein||0)*n,1), carbs: round((ps.carbs||0)*n,1), fat: round((ps.fat||0)*n,1) };
+      const step = (d) => setServStr(String(Math.max(0, round(n + d, 2))));
+      const stepBtn = { width:48, height:48, borderRadius:10, background:S.panel2, border:"1px solid "+S.border, color:S.text, fontSize:14, fontWeight:700, cursor:"pointer" };
+      const bigInput = { flex:1, background:S.panel2, border:"1px solid "+S.borderHi, borderRadius:10, padding:"12px 14px", color:S.text, fontSize:22, fontWeight:600, textAlign:"center", outline:"none", minWidth:0 };
+      const preset = (active) => ({ flex:1, background: active ? `${S.accent}22` : S.panel2, border:`1px solid ${active ? S.accent : S.border}`, color: active ? S.accent : S.dim, padding:"8px 6px", borderRadius:8, fontSize:11, fontWeight:600, cursor:"pointer" });
+      return (
+        <div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+            <button onClick={onCancel} style={{ background:"none", border:"none", color:S.dim, fontSize:13, padding:"4px 0", cursor:"pointer", letterSpacing:1 }}>← BACK</button>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim }}>RECIPE · {slot ? slot.toUpperCase() : ""}</div>
+            <div style={{ width:60 }} />
+          </div>
+          <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
+            <div style={{ fontSize:15, fontWeight:500, color:S.text, marginBottom:4 }}>{recipe.name}</div>
+            <div style={{ fontSize:10, color:S.dim, fontFamily:"'DM Mono',monospace" }}>
+              per serving: {round(ps.cal)} kcal · {round(ps.protein,1)}P · {round(ps.carbs,1)}C · {round(ps.fat,1)}F <span style={{color:S.dimmer}}>· makes {recipe.servings||1}</span>
+            </div>
+          </div>
+          <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>HOW MANY SERVINGS?</div>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+              <button onClick={() => step(-1)} style={stepBtn}>−1</button>
+              <input type="text" inputMode="decimal" value={servStr} onChange={e => setServStr(e.target.value)} onBlur={() => { if (!(parseFloat(servStr) > 0)) setServStr("1"); }} style={bigInput} />
+              <button onClick={() => step(1)} style={stepBtn}>+1</button>
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              {[0.5,1,2,3].map(v => (<button key={v} onClick={() => setServStr(String(v))} style={preset(n===v)}>{v}</button>))}
+            </div>
+          </div>
+          <div style={{ background:`linear-gradient(135deg, ${S.accent}1a, ${S.accent}08)`, border:`1px solid ${S.accent}44`, borderRadius:12, padding:14, marginBottom:14 }}>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.accent, marginBottom:10 }}>WILL LOG</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, textAlign:"center" }}>
+              {[["KCAL",m.cal,S.accent,""],["PRO",m.protein,S.green,"g"],["CRB",m.carbs,S.blue,"g"],["FAT",m.fat,S.purple,"g"]].map(([l,v,c,s]) => (
+                <div key={l}>
+                  <div style={{ fontSize:22, fontWeight:600, color:c, fontFamily:"'DM Mono',monospace" }}>{v}<span style={{ fontSize:11, color:S.dim }}>{s}</span></div>
+                  <div style={{ fontSize:9, color:S.dim, letterSpacing:1.5, marginTop:2 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button onClick={() => onLog(n)} style={{ width:"100%", background:S.accent, color:"#0a0c0f", border:"none", borderRadius:12, padding:"16px", fontSize:13, fontWeight:700, letterSpacing:1.5, cursor:"pointer", marginBottom:8 }}>
+            LOG {round(n,2)} {n === 1 ? "SERVING" : "SERVINGS"}
+          </button>
         </div>
       );
     }
