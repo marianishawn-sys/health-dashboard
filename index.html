@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.32.0";
+    const VERSION = "v7.33.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -877,7 +877,11 @@
       const brand = (food.brand || "").toLowerCase();
       const tags = (food.tags || []).join(" ").toLowerCase();
       const hay = name + " " + brand + " " + tags;
-      if (!hay.includes(q.split(" ")[0])) return -1;
+      const toks = q.split(/\s+/).filter(Boolean);
+      const matchCount = toks.filter(t => hay.includes(t)).length;
+      // Multi-word queries need a majority of their words present, so "cheese steak
+      // sandwich" doesn't surface every cheeseburger. Single-word needs that word.
+      if (!name.includes(q) && matchCount < Math.ceil(toks.length * 0.6)) return -1;
       let score = 0;
       if (name.startsWith(q)) score += 100;
       else if (name.includes(q)) score += 50;
@@ -1820,6 +1824,7 @@
       const [offResults, setOffResults] = useState(null); // null=idle, []=no results, [...]
       const [offLoading, setOffLoading] = useState(false);
       const [aiLookupLoading, setAiLookupLoading] = useState(false);
+      const [aiLookupErr, setAiLookupErr] = useState("");
       const searchRef = useRef(null);
 
       useEffect(() => {
@@ -1885,8 +1890,8 @@
         setMode("portion");
       };
 
-      const searchOFF = async () => {
-        if (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0 || recipeMatches.length > 0) return;
+      const searchOFF = async (force = false) => {
+        if (!force && (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0 || recipeMatches.length > 0)) return;
         const q = query.trim();
         if (!q) return;
         setOffLoading(true);
@@ -1931,6 +1936,7 @@
         if (!apiKey) { onMissingKey(); return; }
         const q = query.trim();
         if (!q) return;
+        setAiLookupErr("");
         setAiLookupLoading(true);
         try {
           const prompt = `Give me the nutritional values per 100g for "${q}". Return ONLY valid JSON, no other text:\n{"name":"string","per100g":{"cal":number,"protein":number,"carbs":number,"fat":number,"fibre":number}}`;
@@ -1940,6 +1946,7 @@
             body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:200, messages:[{role:"user",content:prompt}] }),
           });
           const data = await res.json();
+          if (data.error) throw new Error(data.error.message || "API error");
           const text = data.content[0].text;
           const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)[0]);
           const food = {
@@ -1953,7 +1960,13 @@
           const added = onAddNewFood(food);
           setSelectedFood(added);
           setMode("portion");
-        } catch(e) {}
+        } catch(e) {
+          const m = e.message || "failed";
+          setAiLookupErr(/failed to fetch|networkerror|load failed/i.test(m)
+            ? "Couldn't reach the AI (connection / VPN / ad-blocker). Try again."
+            : /401/.test(m) ? "API key rejected — re-enter it in Settings (⋯)."
+            : "AI lookup failed: " + m.slice(0,80));
+        }
         setAiLookupLoading(false);
       };
 
@@ -2022,7 +2035,7 @@
                       autoFocus
                       placeholder="Search foods…"
                       value={query}
-                      onChange={e => { setQuery(e.target.value); setOffResults(null); setAiLookupLoading(false); }}
+                      onChange={e => { setQuery(e.target.value); setOffResults(null); setAiLookupLoading(false); setAiLookupErr(""); }}
                       style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px 14px 12px 38px", color:S.text, fontSize:15, outline:"none" }}
                     />
                     <span style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", color:S.dim, fontSize:14 }}>🔍</span>
@@ -2114,29 +2127,26 @@
                     </button>
                   ))}
 
-                  {/* 4. Internet fallback (lowest priority — only when nothing local) */}
-                  {results.length === 0 && pantryFoods.length === 0 && pantryStubs.length === 0 && recipeMatches.length === 0 && (
-                    <div style={{ marginBottom:12 }}>
-                      {query.trim().length < 3 && (
-                        <div style={{ padding:"40px 20px", textAlign:"center", color:S.dim, fontSize:13 }}>
-                          No matches. Try a different term, scan, or add manually.
-                        </div>
-                      )}
-                      {offLoading && (
-                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Searching internet…</div>
-                      )}
-                      {aiLookupLoading && (
-                        <div style={{ textAlign:"center", padding:"20px 0", color:S.dim, fontSize:12 }}>Asking AI…</div>
-                      )}
-                      {offResults !== null && offResults.length === 0 && !aiLookupLoading && (
-                        <div style={{ textAlign:"center", marginBottom:10, color:S.dim, fontSize:12, paddingTop:12 }}>
-                          No internet results — try asking the AI instead.
-                        </div>
-                      )}
-                      {offResults !== null && offResults.length === 0 && !aiLookupLoading && (
-                        <button onClick={lookupWithAI} style={{ width:"100%", background:`${S.accent}14`, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"12px", color:S.accent, fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-                          🤖 ASK AI FOR "{query.trim()}"
+                  {/* Get it online — ALWAYS available (AI is reliable for anything you type) */}
+                  {query.trim().length >= 2 && (
+                    <div style={{ marginTop:6, marginBottom:12 }}>
+                      <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"8px 4px" }}>
+                        {(results.length + pantryFoods.length + pantryStubs.length + recipeMatches.length) === 0
+                          ? "NOT FOUND — GET IT ONLINE" : "NOT WHAT YOU WANTED? GET IT ONLINE"}
+                      </div>
+                      <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                        <button onClick={lookupWithAI} disabled={aiLookupLoading}
+                          style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:10, padding:"12px 6px", fontSize:11, fontWeight:700, letterSpacing:0.5, cursor:aiLookupLoading?"default":"pointer", opacity:aiLookupLoading?0.7:1 }}>
+                          {aiLookupLoading ? "ASKING AI…" : "🤖 ASK AI"}
                         </button>
+                        <button onClick={() => searchOFF(true)} disabled={offLoading}
+                          style={{ flex:1, background:S.panel2, color:S.text, border:"1px solid "+S.border, borderRadius:10, padding:"12px 6px", fontSize:11, fontWeight:700, letterSpacing:0.5, cursor:offLoading?"default":"pointer" }}>
+                          {offLoading ? "SEARCHING…" : "🌐 SEARCH WEB"}
+                        </button>
+                      </div>
+                      {aiLookupErr && (<div style={{ fontSize:11, color:S.red, marginBottom:8, textAlign:"center", lineHeight:1.4 }}>{aiLookupErr}</div>)}
+                      {offResults !== null && offResults.length === 0 && !offLoading && (
+                        <div style={{ textAlign:"center", marginBottom:8, color:S.dim, fontSize:11 }}>No web results — try Ask AI (it handles anything).</div>
                       )}
                       {(offResults || []).map(f => (
                         <button key={f.id} onClick={() => pickOFF(f)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
