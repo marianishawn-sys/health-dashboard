@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.32.0
+# Nutrition Concierge — v7.33.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,10 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.33.0 — Meal search: AI/web always available + tighter relevance
+- **🤖 ASK AI / 🌐 SEARCH WEB always shown** once you type 2+ chars (not only when local results are empty), so loose matches no longer hide the internet/AI escape hatch. AI reliably handles arbitrary foods ("cheese steak sandwich").
+- `scoreFood` requires a majority of a multi-word query's words to match (no more every-cheeseburger for "cheese steak sandwich"). AI lookup surfaces real errors.
 
 ### v7.32.0 — Stocked items always in meal search · edit-by-serving · volume units
 - **Stocked pantry items always appear in the 🫙 pantry section** of the meal search (even after being logged, e.g. Turkey Pepperette), de-duped from the logged list. "Needs macros" stubs limited to real stocked items.
