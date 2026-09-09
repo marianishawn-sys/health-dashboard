@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.31.0
+# Nutrition Concierge — v7.32.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.32.0 — Stocked items always in meal search · edit-by-serving · volume units
+- **Stocked pantry items always appear in the 🫙 pantry section** of the meal search (even after being logged, e.g. Turkey Pepperette), de-duped from the logged list. "Needs macros" stubs limited to real stocked items.
+- **Editing a serving-logged entry** now always offers the BY-SERVING toggle (reconstructs the food's serving info if lost) — was weight-only.
+- **Volume units** g/oz/lb/ml/cup/tbsp/tsp in the portion adjuster + edit screen (`unitToGrams`/`gramsToUnit` + `WEIGHT_UNITS`). Recipes already accept them via free-text.
 
 ### v7.31.0 — Meal search order: pantry at the top
 - Reordered meal-search results so 🫙 pantry leads: pantry (macros) → pantry (needs macros) → previously-logged → 🍳 recipes.
