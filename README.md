@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.33.0
+# Nutrition Concierge — v7.34.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.34.0 — Recipe editor: hand-edited amounts now count
+- Editing an ingredient's **quantity or unit** in the recipe builder now clears any stored per-row `grams` override (left over from a scan or AI parse). Previously that stale gram value silently overrode what you typed, so the recipe total ignored your edit (a tuna row typed as 394 g was still counted as 85 g). Amounts you type now drive the macros.
 
 ### v7.33.0 — Meal search: AI/web always available + tighter relevance
 - **🤖 ASK AI / 🌐 SEARCH WEB always shown** once you type 2+ chars (not only when local results are empty), so loose matches no longer hide the internet/AI escape hatch. AI reliably handles arbitrary foods ("cheese steak sandwich").
