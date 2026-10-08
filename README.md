@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.34.0
+# Nutrition Concierge — v7.35.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.35.0 — Accurate "1 g = 1 serving" recipes
+- Per-serving macros keep 3 decimals when a serving is tiny (kcal < 20), so weigh-the-batch / weigh-the-scoop recipes log accurately. Previously 2.218 kcal/g was stored as 2 (~10% undercount per scoop). Normal recipes unchanged.
 
 ### v7.34.0 — Recipe editor: hand-edited amounts now count
 - Editing an ingredient's **quantity or unit** in the recipe builder now clears any stored per-row `grams` override (left over from a scan or AI parse). Previously that stale gram value silently overrode what you typed, so the recipe total ignored your edit (a tuna row typed as 394 g was still counted as 85 g). Amounts you type now drive the macros.
