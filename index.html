@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.33.0";
+    const VERSION = "v7.34.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -3115,8 +3115,16 @@
           if (ing) { const g = ing.servingG || 100; setRows(prev => [...prev, { itemId: ing.id, quantity: g, unit: "g", grams: g }]); }
         });
       };
+      // Editing the amount or unit must drop any stored grams override (from a scan or
+      // parse) — otherwise that stale value silently wins over what the user types, so
+      // the macros never reflect the edited amount.
       const updateRow = (idx, field, val) =>
-        setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
+        setRows(prev => prev.map((r, i) => {
+          if (i !== idx) return r;
+          const next = { ...r, [field]: val };
+          if (field === "quantity" || field === "unit") delete next.grams;
+          return next;
+        }));
       const removeRow = (idx) => setRows(prev => prev.filter((_, i) => i !== idx));
 
       const save = () => {
