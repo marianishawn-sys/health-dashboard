@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.34.0";
+    const VERSION = "v7.35.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -838,9 +838,14 @@
         any = true;
       });
       if (!any) return null;
+      // Tiny servings (e.g. "1 g = 1 serving" batch recipes) need extra precision —
+      // rounding 2.218 kcal/g to 2 would undercount every logged scoop by ~10%.
+      // Logging multiplies by the amount eaten and rounds the result, so this is safe.
+      const fine = tot.cal / n < 20;
+      const dc = fine ? 3 : 0, dm = fine ? 3 : 1;
       return {
-        cal: round(tot.cal / n), protein: round(tot.protein / n, 1),
-        carbs: round(tot.carbs / n, 1), fat: round(tot.fat / n, 1), fibre: round(tot.fibre / n, 1),
+        cal: round(tot.cal / n, dc), protein: round(tot.protein / n, dm),
+        carbs: round(tot.carbs / n, dm), fat: round(tot.fat / n, dm), fibre: round(tot.fibre / n, dm),
       };
     };
 
