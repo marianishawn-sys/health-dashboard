@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.35.0";
+    const VERSION = "v7.36.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -68,6 +68,27 @@
     const isoToday = () => { const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
     const uid = (p="id") => p + "_" + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
     const round = (n, d=0) => { const f = Math.pow(10,d); return Math.round(n*f)/f; };
+
+    // Photo File → Anthropic image block, downscaled (max 1600px JPEG) so big phone
+    // photos stay under the API's per-image size limit and upload quickly.
+    const fileToImageBlock = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("couldn't open that image"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("couldn't read that image format"));
+        img.onload = () => {
+          const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          const url = c.toDataURL("image/jpeg", 0.85);
+          resolve({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: url.split(",")[1] } });
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
 
     const G_PER_OZ = 28.3495;
     const G_PER_LB = 453.592;
@@ -3081,7 +3102,7 @@
     };
 
     // ───────────────────── RECIPE EDITOR MODAL ─────────────────────
-    function RecipeEditor({ recipe, ingredients, onSave, onCancel, apiKey, onCreateIngredient, onAddScanned, onMissingKey, quickIngredients }) {
+    function RecipeEditor({ recipe, ingredients, onSave, onCancel, apiKey, onCreateIngredient, onAddScanned, onRecipePhotos, onMissingKey, quickIngredients }) {
       const [name, setName]             = useState(recipe.name || "");
       const [servings, setServings]     = useState(recipe.servings || 2);
       const [rows, setRows]             = useState(recipe.ingredients || []);
@@ -3089,6 +3110,11 @@
       const [ingSearch, setIngSearch]   = useState("");
       const [adding, setAdding]         = useState(false);
       const [scanning, setScanning]     = useState(false);
+      const [camMenu, setCamMenu]       = useState(false);   // 📷 chooser: recipe photo vs one ingredient label
+      const [reading, setReading]       = useState(false);   // AI is reading recipe photo(s)
+      const [estimated, setEstimated]   = useState(!!recipe._estimated);
+      const recipeCamRef = useRef(null);
+      const recipeGalRef = useRef(null);
 
       const preview = useMemo(() => computePerServing(rows, servings, ingredients), [rows, servings, ingredients]);
 
@@ -3123,6 +3149,26 @@
       // Editing the amount or unit must drop any stored grams override (from a scan or
       // parse) — otherwise that stale value silently wins over what the user types, so
       // the macros never reflect the edited amount.
+      // 📷 → Recipe: read photo(s) and MERGE into this recipe — add new ingredient rows,
+      // and fill name / servings / instructions only where they're still empty.
+      const handleRecipePhotos = async (files) => {
+        if (!files.length || !onRecipePhotos) return;
+        setCamMenu(false); setReading(true);
+        try {
+          const r = await onRecipePhotos(files);
+          const wasEmpty = rows.length === 0;
+          setRows(prev => [...prev, ...r.rows.filter(x => !prev.some(p => p.itemId === x.itemId))]);
+          if (!name.trim() && r.name) setName(r.name);
+          if (!instructions.trim() && r.instructions) setInstructions(r.instructions);
+          if (wasEmpty && !recipe.id && r.servings) setServings(r.servings);
+          if (r.estimated) setEstimated(true);
+          if (!r.rows.length) alert("No ingredients found in that photo — try a clearer shot, or add them below.");
+        } catch (e) {
+          alert("Couldn't read that photo: " + ((e && e.message) || "failed"));
+        }
+        setReading(false);
+      };
+
       const updateRow = (idx, field, val) =>
         setRows(prev => prev.map((r, i) => {
           if (i !== idx) return r;
@@ -3135,7 +3181,8 @@
       const save = () => {
         if (!name.trim() || rows.length === 0) return;
         const perServing = computePerServing(rows, servings, ingredients);
-        onSave({ ...recipe, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions, ...(perServing ? { perServing } : {}) });
+        const { _estimated, ...base } = recipe;
+        onSave({ ...base, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions, ...(perServing ? { perServing } : {}) });
       };
 
       const panelStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10 };
@@ -3170,10 +3217,16 @@
               <button onClick={() => setServings(s => (Number(s)||1) + 1)} style={stepBtn}>+</button>
             </div>
 
+            {estimated && (
+              <div style={{ background:`${S.accent}14`, border:`1px solid ${S.accent}55`, borderRadius:10, padding:"9px 11px", marginBottom:12, fontSize:11, color:S.text, lineHeight:1.45 }}>
+                ⚠ No written recipe in the photo — these ingredients and amounts were <b>estimated</b> from the dish. Check them against what you actually used before saving.
+              </div>
+            )}
+
             {/* Ingredients */}
             <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>INGREDIENTS · {rows.length}</div>
             {rows.length === 0 && (
-              <div style={{ fontSize:12, color:S.dimmer, padding:"2px 2px 12px", lineHeight:1.4 }}>Search below to add ingredients — or back out and start from a photo.</div>
+              <div style={{ fontSize:12, color:S.dimmer, padding:"2px 2px 12px", lineHeight:1.4 }}>Search below to add ingredients — or tap 📷 to build the whole recipe from a photo.</div>
             )}
             {rows.map((row, idx) => {
               const ing = ingredients.find(i => i.id === row.itemId);
@@ -3203,7 +3256,7 @@
             <div style={{ position:"relative", margin:"8px 0 10px" }}>
               <div style={{ display:"flex", gap:6 }}>
                 <input placeholder="Add ingredient…" value={ingSearch} onChange={e => setIngSearch(e.target.value)} style={{ ...inputStyle, flex:1 }} />
-                <button onClick={() => { if (!apiKey) { onMissingKey && onMissingKey(); return; } setScanning(true); }} title="Scan a barcode / label"
+                <button onClick={() => { if (!apiKey) { onMissingKey && onMissingKey(); return; } setCamMenu(v => !v); }} disabled={reading} title="Recipe photo, or one ingredient's label / barcode"
                   style={{ background:S.panel2, border:"1px solid "+S.border, color:S.accent, borderRadius:10, padding:"0 14px", fontSize:16, cursor:"pointer", flexShrink:0 }}>📷</button>
               </div>
               {ingSearch.trim() && (
@@ -3222,6 +3275,35 @@
                 </div>
               )}
             </div>
+
+            {/* 📷 chooser — whole recipe from photo(s) vs one ingredient's label */}
+            <input ref={recipeCamRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+              onChange={e => { const fs = Array.from(e.target.files || []); e.target.value=""; handleRecipePhotos(fs); }} />
+            <input ref={recipeGalRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+              onChange={e => { const fs = Array.from(e.target.files || []); e.target.value=""; handleRecipePhotos(fs); }} />
+            {reading && (
+              <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"12px", marginBottom:14, fontSize:12, color:S.accent, textAlign:"center" }}>
+                📖 Reading recipe — ingredients, steps &amp; macros…
+              </div>
+            )}
+            {camMenu && !reading && (
+              <div style={{ background:S.panel, border:"1px solid "+S.accent+"55", borderRadius:10, padding:"10px 12px", marginBottom:14 }}>
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>📖 WHOLE RECIPE — ingredients + steps</div>
+                <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                  <button onClick={() => recipeCamRef.current?.click()}
+                    style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 6px", fontSize:12, fontWeight:700, cursor:"pointer" }}>📷 Camera</button>
+                  <button onClick={() => recipeGalRef.current?.click()}
+                    style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"10px 6px", fontSize:12, fontWeight:700, cursor:"pointer" }}>🖼️ Photos (1–5)</button>
+                </div>
+                <div style={{ fontSize:9, letterSpacing:1.5, color:S.dim, marginBottom:6 }}>🏷️ ONE INGREDIENT — label or barcode</div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={() => { setCamMenu(false); setScanning(true); }}
+                    style={{ flex:1, background:S.panel2, color:S.text, border:"1px solid "+S.border, borderRadius:8, padding:"10px 6px", fontSize:12, fontWeight:600, cursor:"pointer" }}>Scan a label</button>
+                  <button onClick={() => setCamMenu(false)}
+                    style={{ background:"none", color:S.dim, border:"none", padding:"10px 8px", fontSize:12, cursor:"pointer" }}>Cancel</button>
+                </div>
+              </div>
+            )}
 
             {/* Quick-add from your most-used ingredients */}
             {!ingSearch.trim() && quickIngredients && quickIngredients.filter(ig => !rows.some(r => r.itemId === ig.id)).length > 0 && (
@@ -3289,6 +3371,7 @@
       const [diaryMsg, setDiaryMsg]     = useState("");
       const csvFileRef = useRef(null);
       const photoRef   = useRef(null);
+      const galleryRef = useRef(null);
       const [showPaste, setShowPaste] = useState(false);
 
       const recipes     = data.recipes     || [];
@@ -3655,7 +3738,11 @@
       // Shared "return a recipe as JSON" instruction (includes the known-ingredient list).
       const buildRecipeSpec = () => {
         const ingList = ingredients.map(i => `${i.id}: ${i.name}`).join("\n");
-        return `Extract the recipe name, number of servings (default 2), all ingredients, and any instructions. For EACH ingredient give the quantity and unit as written, the total weight in grams for that amount, and typical per-100g macros.
+        return `Extract the recipe name, the number of servings it makes (as stated; otherwise your best estimate, default 2), EVERY ingredient as its own line item, and the full instructions. For EACH ingredient give the quantity and unit as written, the total weight in grams for that amount, and typical per-100g macros (use label values if a nutrition label is shown).
+
+Instructions: transcribe every written step faithfully, as numbered steps one per line ("1. …\\n2. …"). Use an empty string if no steps are given — never invent steps.
+
+If the source is a written recipe (card, cookbook page, screenshot, text), transcribe it exactly and set "estimated": false. If it shows ONLY a finished dish or food with no written recipe, list the ingredients a typical homemade version would use, with realistic amounts for what is pictured, and set "estimated": true.
 
 Known ingredient registry (match by name when possible, use the itemId):
 ${ingList}
@@ -3667,12 +3754,13 @@ Return ONLY this JSON:
   "ingredients": [
     {"itemId": "ing_xxx or null", "name": "ingredient name", "quantity": 2, "unit": "cup", "grams": 240, "per100g": {"cal": 0, "protein": 0, "carbs": 0, "fat": 0, "fibre": 0}}
   ],
-  "instructions": "brief steps if present"
+  "instructions": "1. First step\\n2. Second step",
+  "estimated": false
 }`;
       };
 
-      // Parsed-recipe JSON → registry ingredients (with macros) + open the editor pre-filled.
-      const applyParsedRecipe = (parsed) => {
+      // Parsed-recipe JSON → registry ingredients (with macros) → { name, servings, rows, instructions, estimated }.
+      const ingestParsed = (parsed) => {
         const newIngs = [...ingredients];
         let ingsChanged = false;
         const recipeRows = (parsed.ingredients || []).map(ing => {
@@ -3699,12 +3787,37 @@ Return ONLY this JSON:
           return { itemId, quantity: ing.quantity || 0, unit: ing.unit || "g", ...(ing.grams > 0 ? { grams: Math.round(ing.grams) } : {}) };
         });
         if (ingsChanged) setData({ ...data, ingredients: newIngs });
+        return {
+          name: (parsed.name || "").trim(),
+          servings: Number(parsed.servings) > 0 ? Number(parsed.servings) : 0,
+          rows: recipeRows,
+          instructions: (parsed.instructions || "").trim(),
+          estimated: parsed.estimated === true,
+        };
+      };
+      // …and open the editor pre-filled with it.
+      const applyParsedRecipe = (parsed) => {
+        const r = ingestParsed(parsed);
         setEditRecipe({
-          name: parsed.name || "Unnamed Recipe",
-          servings: parsed.servings || 2,
-          ingredients: recipeRows,
-          instructions: parsed.instructions || "",
+          name: r.name || "Unnamed Recipe",
+          servings: r.servings || 2,
+          ingredients: r.rows,
+          instructions: r.instructions,
+          ...(r.estimated ? { _estimated: true } : {}),
         });
+      };
+
+      // One or more photos (e.g. a recipe spanning two pages) → parsed recipe JSON.
+      const readRecipePhotos = async (files) => {
+        const imgs = await Promise.all(Array.from(files || []).slice(0, 5).map(fileToImageBlock));
+        if (!imgs.length) throw new Error("no photo selected");
+        const lead = imgs.length > 1 ? `These ${imgs.length} images are parts of ONE recipe — combine them.` : "Read the recipe shown in this image.";
+        return extractJSON(await callAnthropic([...imgs, { type: "text", text: `${lead} ${buildRecipeSpec()}` }], 4096));
+      };
+      // For the editor's 📷 → "Recipe" mode: merge into the recipe being edited.
+      const recipeFromPhotos = async (files) => {
+        try { return ingestParsed(await readRecipePhotos(files)); }
+        catch (e) { throw new Error(friendlyErr(e)); }
       };
 
       const parseRecipe = async () => {
@@ -3712,7 +3825,7 @@ Return ONLY this JSON:
         if (!apiKey) { onMissingKey(); return; }
         setParsing(true);
         try {
-          const txt = await callAnthropic(`Parse this recipe. ${buildRecipeSpec()}\n\nRecipe text (may be a URL — use it if you recognise the recipe):\n${parseText}`, 2048);
+          const txt = await callAnthropic(`Parse this recipe. ${buildRecipeSpec()}\n\nRecipe text (may be a URL — use it if you recognise the recipe):\n${parseText}`, 4096);
           applyParsedRecipe(extractJSON(txt));
           setParseText(""); setShowPaste(false);
         } catch (e) {
@@ -3721,28 +3834,16 @@ Return ONLY this JSON:
         setParsing(false);
       };
 
-      const parseRecipeFromImage = async (dataUrl) => {
+      const parseImageFiles = async (files) => {
+        if (!files || !files.length) return;
         if (!apiKey) { onMissingKey(); return; }
         setParsing(true);
         try {
-          const base64 = dataUrl.split(",")[1];
-          const mimeType = (dataUrl.match(/data:(.*?);/) || [])[1] || "image/jpeg";
-          const content = [
-            { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } },
-            { type: "text", text: `Read the recipe shown in this image. ${buildRecipeSpec()}` },
-          ];
-          applyParsedRecipe(extractJSON(await callAnthropic(content, 2048)));
+          applyParsedRecipe(await readRecipePhotos(files));
         } catch (e) {
           alert("Couldn't read that photo: " + friendlyErr(e));
         }
         setParsing(false);
-      };
-
-      const parseImageFile = (file) => {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => parseRecipeFromImage(reader.result);
-        reader.readAsDataURL(file);
       };
 
       const inputStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10,
@@ -3794,11 +3895,17 @@ Return ONLY this JSON:
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:"12px 14px", marginBottom:16 }}>
             <div style={{ fontSize:9, letterSpacing:2, color:S.dim, marginBottom:8 }}>CREATE WITH AI</div>
             <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
-              onChange={e => { const f = e.target.files?.[0]; if (f) parseImageFile(f); e.target.value=""; }} />
+              onChange={e => { const fs = Array.from(e.target.files || []); e.target.value=""; parseImageFiles(fs); }} />
+            <input ref={galleryRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+              onChange={e => { const fs = Array.from(e.target.files || []); e.target.value=""; parseImageFiles(fs); }} />
             <div style={{ display:"flex", gap:8 }}>
               <button onClick={() => { if (!apiKey) { onMissingKey(); return; } photoRef.current?.click(); }} disabled={parsing}
                 style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"11px 6px", fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:parsing?"default":"pointer", opacity:parsing?0.7:1 }}>
-                {parsing ? "READING…" : "📷 FROM PHOTO"}
+                {parsing ? "READING…" : "📷 CAMERA"}
+              </button>
+              <button onClick={() => { if (!apiKey) { onMissingKey(); return; } galleryRef.current?.click(); }} disabled={parsing}
+                style={{ flex:1, background:S.accent, color:"#0a0c0f", border:"none", borderRadius:8, padding:"11px 6px", fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:parsing?"default":"pointer", opacity:parsing?0.7:1 }}>
+                🖼️ PHOTOS
               </button>
               <button onClick={() => setShowPaste(v => !v)}
                 style={{ flex:1, background:showPaste?`${S.accent}22`:S.panel2, color:showPaste?S.accent:S.text, border:`1px solid ${showPaste?S.accent:S.border}`, borderRadius:8, padding:"11px 6px", fontSize:12, fontWeight:700, letterSpacing:0.5, cursor:"pointer" }}>
@@ -3806,7 +3913,7 @@ Return ONLY this JSON:
               </button>
             </div>
             <div style={{ fontSize:10, color:S.dim, marginTop:8, lineHeight:1.4 }}>
-              Snap a recipe card, cookbook page, or screenshot — AI fills in ingredients + macros for you to review.
+              Snap or pick a recipe card, cookbook page, or screenshots (several pages OK) — AI builds the ingredient list, steps + macros for you to review.
             </div>
             {showPaste && (
               <>
@@ -3942,6 +4049,7 @@ Return ONLY this JSON:
               apiKey={apiKey}
               onCreateIngredient={createIngredient}
               onAddScanned={addScannedToRegistry}
+              onRecipePhotos={recipeFromPhotos}
               onMissingKey={onMissingKey}
               quickIngredients={quickIngredients}
               onSave={saveRecipe}
