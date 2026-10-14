@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.35.0
+# Nutrition Concierge — v7.36.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,12 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.36.0 — Recipes from photos: real ingredient lists + steps
+- Recipe editor 📷 now asks: **Whole recipe** (camera, or 1–5 gallery photos for multi-page recipes/screenshots) or **One ingredient** (label/barcode). Whole-recipe mode fills the open recipe with line-item ingredients (macros looked up), servings, and numbered instructions — merging, not overwriting.
+- Recipes tab CREATE WITH AI: 📷 CAMERA + 🖼️ PHOTOS (multi-photo).
+- Steps are transcribed verbatim, never invented. A photo of just a finished dish gets an **estimated** typical ingredient breakdown with a warning banner to check amounts.
+- Photos are downscaled to 1600 px before upload (avoids API size errors on big phone photos).
 
 ### v7.35.0 — Accurate "1 g = 1 serving" recipes
 - Per-serving macros keep 3 decimals when a serving is tiny (kcal < 20), so weigh-the-batch / weigh-the-scoop recipes log accurately. Previously 2.218 kcal/g was stored as 2 (~10% undercount per scoop). Normal recipes unchanged.
