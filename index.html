@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.36.0";
+    const VERSION = "v7.37.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -3986,8 +3986,8 @@ Return ONLY this JSON:
                       );
                     })}
                     {recipe.instructions && (
-                      <div style={{ fontSize:12, color:S.dim, marginTop:10, lineHeight:1.5,
-                        fontStyle:"italic" }}>{recipe.instructions}</div>
+                      <div style={{ fontSize:12, color:S.dim, marginTop:10, lineHeight:1.55,
+                        whiteSpace:"pre-wrap", overflowWrap:"anywhere" }}>{recipe.instructions}</div>
                     )}
 
                     {/* Add to diary */}
