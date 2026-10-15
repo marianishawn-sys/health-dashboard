@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.36.0
+# Nutrition Concierge — v7.37.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,9 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.37.0 — Readable recipe instructions
+- Recipe cards keep line breaks in instructions (numbered steps and notes sections no longer collapse into one italic paragraph).
 
 ### v7.36.0 — Recipes from photos: real ingredient lists + steps
 - Recipe editor 📷 now asks: **Whole recipe** (camera, or 1–5 gallery photos for multi-page recipes/screenshots) or **One ingredient** (label/barcode). Whole-recipe mode fills the open recipe with line-item ingredients (macros looked up), servings, and numbered instructions — merging, not overwriting.
