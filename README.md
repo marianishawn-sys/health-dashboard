@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.37.0
+# Nutrition Concierge — v7.38.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.38.0 — Conflict-safe sync (no more silent overwrites)
+- Before every save the app checks whether the Drive file changed elsewhere (another device, the coach, or a manual edit). If so it **merges** item-by-item instead of overwriting: recipes, ingredients, foods, pantry, grocery, meal plan and every log entry from both sides are kept. Same-field conflicts go to the device saving.
+- Saves are serialized; unsynced device work found at load is merged with Drive, not swapped in wholesale.
+- Fixes the stale-phone overwrite that erased the sourdough loaf / crumpet / flour edits on 2026-10-15.
 
 ### v7.37.0 — Readable recipe instructions
 - Recipe cards keep line breaks in instructions (numbered steps and notes sections no longer collapse into one italic paragraph).
