@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.37.0";
+    const VERSION = "v7.38.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -419,13 +419,63 @@
     };
 
     const writeDriveFile = async (id, data) => {
-      const res = await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media", {
+      const res = await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media&fields=version", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),   // compact (smaller upload than pretty-printed)
       });
       if (!res.ok) throw new Error("Drive write failed (HTTP " + res.status + ")");  // surface real errors instead of silent success
+      try { const j = await res.json(); if (id === fileId && j.version) driveVersion = j.version; } catch (e) {}
       return res;
+    };
+
+    // ─── Conflict-safe sync ───
+    // Drive bumps a file's `version` on every content change. We remember the version we
+    // last read/wrote; if it moved before our next save, someone else (another device,
+    // the coach, a manual edit) changed the file, so we MERGE instead of overwriting.
+    let driveVersion = null;
+    const getDriveVersion = async (id) => {
+      try {
+        const r = await driveFetch("https://www.googleapis.com/drive/v3/files/" + id + "?fields=version");
+        if (!r.ok) return null;
+        return (await r.json()).version || null;
+      } catch (e) { return null; }
+    };
+    // Three-way merge: `base` = the common ancestor, `local` = this device's version,
+    // `remote` = what's on Drive now. Lists of {id} objects (recipes, ingredients, foods,
+    // pantry, log entries…) merge item-by-item, so additions/edits/deletions on BOTH sides
+    // survive. Only when both sides changed the very same field does this device win.
+    const isPlainObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+    const sameJSON = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+    const isIdList = (a) => Array.isArray(a) && a.every(x => isPlainObj(x) && x.id != null);
+    const merge3 = (base, local, remote) => {
+      if (sameJSON(local, base)) return remote;
+      if (sameJSON(remote, base)) return local;
+      if (isPlainObj(local) && isPlainObj(remote)) {
+        const b = isPlainObj(base) ? base : {}, out = {};
+        new Set([...Object.keys(remote), ...Object.keys(local)]).forEach(k => {
+          const inL = k in local, inR = k in remote, inB = k in b;
+          if (!inL) { if (!(inB && sameJSON(b[k], remote[k]))) out[k] = remote[k]; return; }  // local deleted it (unless remote changed it)
+          if (!inR) { if (!(inB && sameJSON(b[k], local[k]))) out[k] = local[k]; return; }   // remote deleted it (unless local changed it)
+          out[k] = merge3(b[k], local[k], remote[k]);
+        });
+        return out;
+      }
+      if (isIdList(local) && isIdList(remote)) {
+        const byId = (a) => new Map((Array.isArray(a) ? a : []).filter(isPlainObj).map(x => [x.id, x]));
+        const bm = byId(base), lm = byId(local), rm = byId(remote), out = [];
+        remote.forEach(r => {
+          if (!lm.has(r.id)) { if (!(bm.has(r.id) && sameJSON(bm.get(r.id), r))) out.push(r); return; }
+          out.push(merge3(bm.get(r.id), lm.get(r.id), r));
+        });
+        local.forEach(l => {
+          if (rm.has(l.id)) return;
+          if (bm.has(l.id) && sameJSON(bm.get(l.id), l)) return;   // remote deleted it, local didn't touch it
+          out.push(l);
+        });
+        return out;
+      }
+      return local;   // genuine conflict on one value → this device's edit wins
     };
 
     // Local (device) backup of the data — survives reloads so unsaved work isn't lost
@@ -433,6 +483,11 @@
     const LOCAL_BACKUP_KEY = "nc_data_backup";
     const readLocalBackup = () => { try { return JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY) || "null"); } catch (e) { return null; } };
     const writeLocalBackup = (d) => { try { localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(d)); } catch (e) {} };
+    // The last copy this device KNOWS is on Drive — the common ancestor for merging when
+    // this device has unsynced work (its local backup) and Drive has changed meanwhile.
+    const SYNCED_KEY = "nc_data_synced";
+    const readSynced = () => { try { return JSON.parse(localStorage.getItem(SYNCED_KEY) || "null"); } catch (e) { return null; } };
+    const writeSynced = (d) => { try { localStorage.setItem(SYNCED_KEY, JSON.stringify(d)); } catch (e) {} };
 
     // ───────────────────── DATA MIGRATION ─────────────────────
     const migrateToV2 = (data) => {
@@ -937,6 +992,10 @@
       const [editEntry, setEditEntry] = useState(null);   // { entry, slot } | null
       const [pendingDelete, setPendingDelete] = useState(null); // { entry, slot, date, timeoutId } | null
       const saveTimer = useRef(null);
+      // lastLocal = the local doc behind our last Drive write (or load); lastWritten = what
+      // Drive holds after it. writeChain serializes saves so two can't race.
+      const syncRef = useRef({ lastLocal: null, lastWritten: null });
+      const writeChain = useRef(Promise.resolve());
       const [pullY, setPullY]         = useState(0);
       const [refreshing, setRefreshing] = useState(false);
       const [ptrSnap, setPtrSnap]     = useState(false);
@@ -1024,6 +1083,7 @@
         try {
           folderId = DRIVE_FOLDER_ID;
           fileId = await findOrCreateFile(DATA_FILENAME, folderId);
+          driveVersion = await getDriveVersion(fileId);
           const raw = await readDriveFile(fileId);
           const v2 = migrateToV2(raw);
           const v3 = migrateToV3(v2);
@@ -1050,20 +1110,25 @@
           }
 
           // Resilience: if this device has a LOCAL backup NEWER than Drive (its saves had
-          // been failing), keep the local copy and push it up — don't lose unsaved work.
+          // been failing), don't lose that work — but don't wipe Drive's newer changes
+          // either: merge the two against the last copy both had in common.
           let finalData = afterCoach, localNewer = false;
           const localBak = readLocalBackup();
           if (localBak && localBak.lastModified && (!afterCoach.lastModified || localBak.lastModified > afterCoach.lastModified)) {
-            finalData = localBak; localNewer = true;
+            const synced = readSynced();
+            finalData = synced ? { ...merge3(synced, localBak, afterCoach), lastModified: new Date().toISOString() } : localBak;
+            localNewer = !sameJSON(finalData, afterCoach);
           }
           setData(finalData);
           writeLocalBackup(finalData);
+          syncRef.current = { lastLocal: finalData, lastWritten: finalData };
 
           const needsSave = localNewer || !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
             || migrated !== v4 || migratedIngs !== migrated || coachChanged || keyChanged;
           if (needsSave) {
             await writeDriveFile(fileId, finalData);
           }
+          writeSynced(finalData);
         } catch (e) {
           console.error("Load failed", e);
           // Drive unreachable (e.g. the token broke): fall back to the last device backup
@@ -1140,16 +1205,34 @@
         writeLocalBackup(next);   // device backup FIRST, so a failed Drive write can't lose it
         setSyncStatus("saving");
         if (saveTimer.current) clearTimeout(saveTimer.current);
-        const doWrite = async () => {
+        const doWrite = () => { writeChain.current = writeChain.current.then(async () => {
           try {
-            await writeDriveFile(fileId, next);
+            const s = syncRef.current;
+            let toWrite = next, merged = false;
+            // Did anyone else change the file since we last read/wrote it?
+            const cur = await getDriveVersion(fileId);
+            let remote = s.lastWritten;
+            if (cur && driveVersion && cur !== driveVersion) {
+              const r = await readDriveFile(fileId);
+              if (r) remote = r;
+            }
+            // `next` descends from s.lastLocal; Drive holds `remote`. If those differ
+            // (another device/coach/manual edit, or a merge we just did), merge.
+            if (s.lastLocal && remote && remote !== s.lastLocal) {
+              const m = merge3(s.lastLocal, next, remote);
+              if (!sameJSON(m, next)) { toWrite = { ...m, lastModified: new Date().toISOString() }; merged = true; }
+            }
+            await writeDriveFile(fileId, toWrite);
+            syncRef.current = { lastLocal: next, lastWritten: toWrite };
+            writeSynced(toWrite);
+            if (merged) { setData(toWrite); writeLocalBackup(toWrite); }
             setSyncStatus("saved");
             setTimeout(() => setSyncStatus("idle"), 1500);
           } catch (e) {
             setSyncStatus("error");
             console.error("Save failed", e);
           }
-        };
+        }); };
         // immediate=true → write now (no debounce window) for discrete adds
         if (immediate) doWrite();
         else saveTimer.current = setTimeout(doWrite, 1200);
