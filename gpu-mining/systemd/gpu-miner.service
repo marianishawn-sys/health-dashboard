@@ -1,0 +1,17 @@
+[Unit]
+Description=GPU miner (started/stopped by off-peak timers)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/gpu-miner/gpu-miner.env
+ExecStartPre=/usr/local/bin/offpeak-miner.sh prepare
+ExecStart=/usr/local/bin/offpeak-miner.sh run
+ExecStopPost=/usr/local/bin/offpeak-miner.sh cleanup
+Restart=on-failure
+RestartSec=30
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
