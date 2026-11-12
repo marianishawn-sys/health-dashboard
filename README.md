@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.38.0
+# Nutrition Concierge — v7.39.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.39.0 — Every recipe ingredient has macros + real unit conversions
+- **Unit conversion rebuilt** (`gramsPerUnit(unit, ingredient)`): MyFitnessPal-import units (`1 portions`, `tbsp (15g)`, `milliliter`, `fluid ounce`, `container (900 ml ea.)`, `container (1.8 cup (121 g) ea.)`, butter `stick`, `dash`…) now convert properly instead of silently counting as 100 g. Cups/spoons use each ingredient's own density (new optional ingredient field `gPerCup`, e.g. flour 125 g/cup), and a label weight on a cup/spoon that contradicts the density is ignored.
+- **Data**: all 459 recipe ingredients that had no macros now have them (plus per-item size and cup density); every recipe's per-serving macros recomputed and cross-checked against the old MyFitnessPal totals. Ciambelle kept on its MFP total pending which version is used.
+- **Meal search**: only stocked items are labelled 🫙 PANTRY at the top; other ingredients appear after recipes as 🧂 INGREDIENT (best 6 matches).
 
 ### v7.38.0 — Conflict-safe sync (no more silent overwrites)
 - Before every save the app checks whether the Drive file changed elsewhere (another device, the coach, or a manual edit). If so it **merges** item-by-item instead of overwriting: recipes, ingredients, foods, pantry, grocery, meal plan and every log entry from both sides are kept. Same-field conflicts go to the device saving.
