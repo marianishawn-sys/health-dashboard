@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.38.0";
+    const VERSION = "v7.39.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -826,19 +826,57 @@
       fibre: round((per100g.fibre || 0) * grams / 100, 1),
     });
 
-    // grams represented by one unit of a pantry item (for macro scaling / stock decrement)
-    const gramsPerUnit = (unit, servingG) => {
-      const u = (unit || "").toLowerCase();
-      if (u === "g" || u === "ml") return 1;
-      if (u === "kg" || u === "l") return 1000;
-      if (u === "oz") return 28.35;
-      if (u === "lb") return 453.6;
-      // Approximate volume→grams (assumes ~water density; good enough for recipe estimates)
-      if (u === "cup" || u === "cups") return 240;
-      if (u === "tbsp" || u === "tablespoon" || u === "tablespoons") return 15;
-      if (u === "tsp" || u === "teaspoon" || u === "teaspoons") return 5;
-      if (u === "pinch") return 0.5;
-      return servingG || 100;  // count units (eggs, portions, racks…) → per-serving grams
+    // Grams represented by ONE of `unit` (recipe rows, macro scaling, stock decrement).
+    // Second arg: the ingredient (preferred — uses its servingG and gPerCup density) or a
+    // bare servingG number. Understands MyFitnessPal-style units from imports, e.g.
+    // "tbsp (15g)", "container (454.00 gram)", "tsp 3.5g", "cup (8 fl oz)", "milliliter".
+    const gramsPerUnit = (unit, ingOrServingG) => {
+      const ing = ingOrServingG && typeof ingOrServingG === "object" ? ingOrServingG : null;
+      const servingG = ing ? ing.servingG : ingOrServingG;
+      const cupG = (ing && ing.gPerCup > 0) ? ing.gPerCup : 240;   // ~water density unless the ingredient says otherwise
+      const u = (unit || "").toLowerCase().trim();
+      const base = (u.match(/^[a-z]+/) || [""])[0];
+      if (/^fl(\.|uid)?\s*(oz|ounces?)/.test(u)) return 29.57;   // "fl oz", "fluid ounce"
+      if (["oz","ounce","ounces"].includes(base)) return 28.35;
+      if (["lb","lbs","pound","pounds"].includes(base)) return 453.6;
+      if (["g","gr","gram","grams","gramm","gramme","grammes"].includes(base)) return 1;
+      if (["ml","milliliter","milliliters","millilitre","millilitres"].includes(base)) return 1;
+      if (["kg","kilogram","kilograms"].includes(base)) return 1000;
+      if (["l","liter","liters","litre","litres"].includes(base)) return 1000;
+      const VOL = ["cup","cups","c","tbsp","tbs","tb","tbl","tablespoon","tablespoons","tsp","t","teaspoon","teaspoons"];
+      if (base === "stick" && ing && /butter|margarine/i.test(ing.name || "")) return 113;
+      if (!VOL.includes(base)) {
+        // Container-style units state the container's real size first: "container (900 ml ea.)",
+        // "container (1.8 cup (121 g) ea.)" = 1.8 cups (the 121 g is just the label serving),
+        // "container (16.6 tbsp (30g) ea.)", "container (2 cup ea.)".
+        const v = u.match(/([\d.]+)\s*(ml|l)\b/);
+        if (v && parseFloat(v[1]) > 0) return parseFloat(v[1]) * (v[2] === "l" ? 1000 : 1);
+        const nest = u.match(/([\d.]+)\s*(cups?|tbsp|tablespoons?|tsp|teaspoons?)\b/);
+        if (nest && parseFloat(nest[1]) > 0)
+          return parseFloat(nest[1]) * cupG * (/^c/.test(nest[2]) ? 1 : /^(tbsp|tablespoon)/.test(nest[2]) ? 1/16 : 1/48);
+      }
+      // A weight stated in the unit wins: "cup (89g)", "container (240 g ea.)", "tsp 3.5g". A stated VOLUME only counts
+      // for non-volume units ("container (680 ml)") — on "tbsp (30ml)" it describes a serving, not one tbsp.
+      const wt = u.match(/([\d.]+)\s*(?:g|gr|gram|grams|gramm)\b/);
+      if (wt && parseFloat(wt[1]) > 0) {
+        const w = parseFloat(wt[1]);
+        // On cups/spoons the stated weight is often the LABEL's serving ("2 cup (40 g)" for steel-cut
+        // oats = a ¼-cup serving), not one cup. If it disagrees >40% with this ingredient's known
+        // density, trust the density.
+        const perVol = ["cup","cups","c"].includes(base) ? 1 : ["tbsp","tbs","tb","tbl","tablespoon","tablespoons"].includes(base) ? 1/16
+                     : ["tsp","t","teaspoon","teaspoons"].includes(base) ? 1/48 : 0;
+        if (perVol && ing && ing.gPerCup > 0) {
+          const dens = ing.gPerCup * perVol;
+          if (Math.abs(w - dens) / dens > 0.4) return dens;
+        }
+        return w;
+      }
+      if (["cup","cups","c"].includes(base)) return cupG;                 // incl. "cup chopped", "cup packed", "cup (8 fl oz)"
+      if (["tbsp","tbs","tb","tbl","tablespoon","tablespoons"].includes(base)) return cupG / 16;
+      if (["tsp","t","teaspoon","teaspoons"].includes(base)) return cupG / 48;
+      if (base === "pinch") return 0.5;
+      if (base === "dash") return 0.6;
+      return servingG || 100;  // count units (eggs, portions, cloves…) → the ingredient's per-item grams
     };
 
     // AI per-100g + serving lookup for a food name → {per100g, servingG, servingUnit} (throws on failure).
@@ -908,7 +946,7 @@
       (rows || []).forEach(r => {
         const ing = (ingredients || []).find(i => i.id === r.itemId);
         if (!ing || !ing.per100g || ing.per100g.cal == null) return;
-        const grams = r.grams > 0 ? r.grams : (Number(r.quantity) || 0) * gramsPerUnit(r.unit, ing.servingG);
+        const grams = r.grams > 0 ? r.grams : (Number(r.quantity) || 0) * gramsPerUnit(r.unit, ing);
         const m = scaleMacros(ing.per100g, grams);
         tot.cal += m.cal; tot.protein += m.protein; tot.carbs += m.carbs; tot.fat += m.fat; tot.fibre += (m.fibre || 0);
         any = true;
@@ -1321,7 +1359,7 @@
           const ing = (data.ingredients || []).find(i => i.id === linkedId);
           const pe  = pantry.find(p => p.itemId === linkedId);
           if (ing && pe && pe.trackingType === "count" && pe.quantity != null) {
-            const usedUnits = grams / gramsPerUnit(pe.unit || ing.defaultUnit, ing.servingG);
+            const usedUnits = grams / gramsPerUnit(pe.unit || ing.defaultUnit, ing);
             pantry = pantry.map(p => p.id === pe.id
               ? { ...p, quantity: Math.max(0, round((p.quantity || 0) - usedUnits, 1)) }
               : p);
@@ -1950,23 +1988,32 @@
         return () => clearTimeout(t);
       }, [query]);
 
-      const { pantryFoods, pantryStubs, pantryNameSet } = useMemo(() => {
+      const { pantryFoods, libraryFoods, pantryStubs, pantryNameSet } = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (q.length < 2) return { pantryFoods: [], pantryStubs: [], pantryNameSet: new Set() };
+        if (q.length < 2) return { pantryFoods: [], libraryFoods: [], pantryStubs: [], pantryNameSet: new Set() };
         const foodNames = new Set((data.foods || []).map(f => (f.name || "").trim().toLowerCase()));
         const stockedIds = new Set((data.pantry || []).map(p => p.itemId));  // ingredients you actually stock
         const matches = (data.ingredients || []).filter(ing => (ing.name || "").toLowerCase().includes(q));
         // A registry ingredient shows in the pantry section if it's STOCKED (always — even
         // when it's also been logged, e.g. Turkey Pepperette) or it isn't already a logged
         // food. This keeps stocked items at the top instead of buried in the logged list.
-        const withMac = matches.filter(ing => ing.per100g && ing.per100g.cal != null
-          && (stockedIds.has(ing.id) || !foodNames.has((ing.name || "").trim().toLowerCase())));
-        const pantryNameSet = new Set(withMac.map(ing => (ing.name || "").trim().toLowerCase()));
-        return {
-          pantryFoods: withMac.map(ing => ({ id: "ing_" + ing.id, pantryItemId: ing.id, name: ing.name, brand: "", per100g: ing.per100g,
+        const hasMac = ing => ing.per100g && ing.per100g.cal != null;
+        // Only what you actually STOCK gets the PANTRY badge at the top. Other registry
+        // ingredients (mostly from recipe imports) still show, but further down as
+        // INGREDIENT — the best few name matches, and never one that's already a logged food.
+        const stocked = matches.filter(ing => hasMac(ing) && stockedIds.has(ing.id));
+        const rank = ing => { const n = (ing.name || "").toLowerCase(); return (n.startsWith(q) ? 0 : 1000) + n.length; };
+        const library = matches
+          .filter(ing => hasMac(ing) && !stockedIds.has(ing.id) && !foodNames.has((ing.name || "").trim().toLowerCase()))
+          .sort((a, b) => rank(a) - rank(b)).slice(0, 6);
+        const pantryNameSet = new Set([...stocked, ...library].map(ing => (ing.name || "").trim().toLowerCase()));
+        const asFood = (ing, source) => ({ id: "ing_" + ing.id, pantryItemId: ing.id, name: ing.name, brand: "", per100g: ing.per100g,
             servingG: ing.servingG, servingUnit: ing.servingUnit,
             refPortion: ing.servingG ? { grams: ing.servingG, label: "1 " + (ing.servingUnit || "serving") + " (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
-            category: "pantry", source: "pantry", useCount: 0 })),
+            category: source, source, useCount: 0 });
+        return {
+          pantryFoods: stocked.map(ing => asFood(ing, "pantry")),
+          libraryFoods: library.map(ing => asFood(ing, "ingredient")),
           // Only STOCKED items lacking macros prompt to add them (not recipe-import ingredients).
           pantryStubs: matches.filter(ing => (!ing.per100g || ing.per100g.cal == null) && stockedIds.has(ing.id)).slice(0, 8),
           pantryNameSet,
@@ -2000,7 +2047,7 @@
       };
 
       const searchOFF = async (force = false) => {
-        if (!force && (results.length > 0 || pantryFoods.length > 0 || pantryStubs.length > 0 || recipeMatches.length > 0)) return;
+        if (!force && (results.length > 0 || pantryFoods.length > 0 || libraryFoods.length > 0 || pantryStubs.length > 0 || recipeMatches.length > 0)) return;
         const q = query.trim();
         if (!q) return;
         setOffLoading(true);
@@ -2164,7 +2211,7 @@
                 </div>
 
                 <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
-                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + recipeMatches.length + results.length}
+                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + recipeMatches.length + results.length + libraryFoods.length}
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
@@ -2236,11 +2283,24 @@
                     </button>
                   ))}
 
+                  {/* 4. Other ingredients you don't stock (recipe ingredients etc.) */}
+                  {libraryFoods.map(f => (
+                    <button key={f.id} onClick={() => pickFood(f)} style={{ width:"100%", background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                        </div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.dim, whiteSpace:"nowrap", letterSpacing:0.5 }}>🧂 INGREDIENT</div>
+                    </button>
+                  ))}
+
                   {/* Get it online — ALWAYS available (AI is reliable for anything you type) */}
                   {query.trim().length >= 2 && (
                     <div style={{ marginTop:6, marginBottom:12 }}>
                       <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"8px 4px" }}>
-                        {(results.length + pantryFoods.length + pantryStubs.length + recipeMatches.length) === 0
+                        {(results.length + pantryFoods.length + libraryFoods.length + pantryStubs.length + recipeMatches.length) === 0
                           ? "NOT FOUND — GET IT ONLINE" : "NOT WHAT YOU WANTED? GET IT ONLINE"}
                       </div>
                       <div style={{ display:"flex", gap:8, marginBottom:8 }}>
@@ -3314,7 +3374,7 @@
             {rows.map((row, idx) => {
               const ing = ingredients.find(i => i.id === row.itemId);
               const has = ing && ing.per100g && ing.per100g.cal != null;
-              const grams = row.grams > 0 ? row.grams : (Number(row.quantity)||0) * gramsPerUnit(row.unit, ing?.servingG);
+              const grams = row.grams > 0 ? row.grams : (Number(row.quantity)||0) * gramsPerUnit(row.unit, ing);
               const cm = has ? scaleMacros(ing.per100g, grams) : null;
               return (
                 <div key={idx} style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"9px 10px", marginBottom:6 }}>
@@ -4806,7 +4866,7 @@ Return ONLY this JSON:
         const logs = data.logs || {};
         const day  = logs[t.date] || {};
         const meal = [...(day[t.meal] || []), entry];
-        const usedUnits = grams / gramsPerUnit(item.unit || ing.defaultUnit, ing.servingG);
+        const usedUnits = grams / gramsPerUnit(item.unit || ing.defaultUnit, ing);
         const newPantry = pantry.map(p => {
           if (p.id !== t.itemId) return p;
           if (p.trackingType === "count" && p.quantity != null)
