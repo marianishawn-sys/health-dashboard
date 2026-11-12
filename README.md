@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.39.0
+# Nutrition Concierge — v7.40.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,11 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.40.0 — No more sign-in on every launch (private connector)
+- A small Apps Script web app in your own Google account ("Nutrition Concierge Connector") reads/writes only `dashboard-data.json` and the `coach-*.json` drop files, protected by a long secret key stored on each device. The connector link + key live in the data file (`connector`), so a device that signs in with Google once remembers it and never asks again.
+- Offline launches open on the device backup; if the connector is ever unreachable/unauthorized the app falls back to Google sign-in for that session and shows why. **Sign out** forgets the connector on that device.
+- To revoke access: in the Apps Script project, change `KEY` (and the `connector.key` in the data file) or archive the deployment.
 
 ### v7.39.0 — Every recipe ingredient has macros + real unit conversions
 - **Unit conversion rebuilt** (`gramsPerUnit(unit, ingredient)`): MyFitnessPal-import units (`1 portions`, `tbsp (15g)`, `milliliter`, `fluid ounce`, `container (900 ml ea.)`, `container (1.8 cup (121 g) ea.)`, butter `stick`, `dash`…) now convert properly instead of silently counting as 100 g. Cups/spoons use each ingredient's own density (new optional ingredient field `gPerCup`, e.g. flour 125 g/cup), and a label weight on a cup/spoon that contradicts the density is ignored.
