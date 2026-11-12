@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.39.0";
+    const VERSION = "v7.40.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -344,6 +344,21 @@
       catch (e) { clearTimeout(to); pendingTokenResolve = null; reject(e); }
     });
 
+    // ─── Private connector (no Google sign-in) ───
+    // A tiny Apps Script web app in the owner's account reads/writes the data file for us,
+    // authenticated by a long secret key kept on the device. When it's configured, every
+    // Drive helper below routes through it and the app never shows the Google sign-in.
+    const CONNECTOR_LS = "nc_connector";
+    const readConnectorLS = () => { try { const c = JSON.parse(localStorage.getItem(CONNECTOR_LS) || "null"); return c && c.url && c.key ? c : null; } catch (e) { return null; } };
+    let connector = readConnectorLS();
+    const callConnector = async (op, extra = {}) => {
+      const r = await fetch(connector.url, { method: "POST", body: JSON.stringify({ key: connector.key, op, ...extra }) });
+      const text = await r.text();
+      let j; try { j = JSON.parse(text); } catch (e) { const err = new Error("connector not authorized yet"); err.connector = true; throw err; }
+      if (!j.ok) { const err = new Error("connector: " + (j.error || "failed")); err.connector = true; throw err; }
+      return j;
+    };
+
     const driveFetch = async (url, opts = {}, _retried = false) => {
       if (!driveAccessToken) throw new Error("Not authenticated");
       const res = await fetch(url, {
@@ -363,6 +378,7 @@
     const KNOWN_DATA_FILE_ID = "1NedBi7Fa1b8e_k6CpljA9oMIwGDvoDTW";
 
     const findOrCreateFile = async (name, parentFolderId) => {
+      if (connector) return KNOWN_DATA_FILE_ID;
       // First: try the known file ID directly. drive.file scope lets us access any
       // file ID the user has previously authorized this OAuth client to touch.
       try {
@@ -394,17 +410,23 @@
     };
 
     const readDriveFile = async (id) => {
+      if (connector) {
+        const j = id === KNOWN_DATA_FILE_ID ? await callConnector("read") : await callConnector("readCoach", { id });
+        try { return JSON.parse(j.content); } catch (e) { return null; }
+      }
       const r = await driveFetch("https://www.googleapis.com/drive/v3/files/" + id + "?alt=media");
       const text = await r.text();
       try { return JSON.parse(text); } catch (e) { return null; }
     };
 
     const deleteDriveFile = async (id) => {
+      if (connector) return callConnector("deleteCoach", { id });
       return driveFetch("https://www.googleapis.com/drive/v3/files/" + id, { method: "DELETE" });
     };
 
     // Search for coach-*.json files in the given folder (requires drive scope).
     const searchCoachFiles = async (parentFolderId) => {
+      if (connector) { try { return (await callConnector("listCoach")).files || []; } catch (e) { return []; } }
       try {
         const q = encodeURIComponent(
           `name contains 'coach-' and '${parentFolderId}' in parents and trashed = false`
@@ -419,6 +441,11 @@
     };
 
     const writeDriveFile = async (id, data) => {
+      if (connector) {
+        const j = await callConnector("write", { content: JSON.stringify(data) });
+        if (id === fileId && j.version) driveVersion = j.version;
+        return j;
+      }
       const res = await driveFetch("https://www.googleapis.com/upload/drive/v3/files/" + id + "?uploadType=media&fields=version", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -435,6 +462,7 @@
     // the coach, a manual edit) changed the file, so we MERGE instead of overwriting.
     let driveVersion = null;
     const getDriveVersion = async (id) => {
+      if (connector) { try { return (await callConnector("version")).version || null; } catch (e) { return null; } }
       try {
         const r = await driveFetch("https://www.googleapis.com/drive/v3/files/" + id + "?fields=version");
         if (!r.ok) return null;
@@ -1018,7 +1046,9 @@
     // ───────────────────── ROOT APP ─────────────────────
     function App() {
       const [tab, setTab] = useState("today");
-      const [signedIn, setSignedIn] = useState(false);
+      const [signedIn, setSignedIn] = useState(!!connector);
+      const [connMsg, setConnMsg] = useState("");
+      const [hasLoaded, setHasLoaded] = useState(false);
       const [loading, setLoading] = useState(true);
       const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error
       const [showSettings, setShowSettings] = useState(false);
@@ -1063,6 +1093,17 @@
           setLoading(false);
         };
         init();
+        // Private connector configured → go straight in (no Google sign-in). If it can't be
+        // reached because it isn't authorized / the key is wrong, fall back to Google sign-in
+        // for this session. If we're merely offline, open on the device backup as usual.
+        if (connector) (async () => {
+          try { await callConnector("version"); }
+          catch (e) {
+            if (e.connector) { connector = null; setSignedIn(false); setConnMsg("Couldn't use your private connector (" + e.message + ") — sign in with Google this time."); return; }
+          }
+          setSignedIn(true);
+          await loadData();
+        })();
       }, []);
 
       // One-shot background fetch: populate fibre for top-used foods missing it
@@ -1108,6 +1149,8 @@
 
       const signIn = () => { if (tokenClient) tokenClient.requestAccessToken({ prompt: "" }); };
       const signOut = () => {
+        try { localStorage.removeItem(CONNECTOR_LS); } catch (e) {}
+        if (connector) { connector = null; setSignedIn(false); setShowSettings(false); }
         if (driveAccessToken) {
           window.google.accounts.oauth2.revoke(driveAccessToken, () => {});
           driveAccessToken = null;
@@ -1160,6 +1203,12 @@
           setData(finalData);
           writeLocalBackup(finalData);
           syncRef.current = { lastLocal: finalData, lastWritten: finalData };
+          // A connector published in the data file is adopted for NEXT launch (this session
+          // keeps using the Google token it already has).
+          const pub = finalData.connector;
+          if (!connector && pub && pub.url && pub.key && !readConnectorLS()) {
+            try { localStorage.setItem(CONNECTOR_LS, JSON.stringify({ url: pub.url, key: pub.key })); } catch (e) {}
+          }
 
           const needsSave = localNewer || !raw || (raw.schema_version || 0) < 4 || !raw.groceryList
             || migrated !== v4 || migratedIngs !== migrated || coachChanged || keyChanged;
@@ -1175,6 +1224,7 @@
           if (localBak) setData(localBak);
         }
         setLoading(false);
+        setHasLoaded(true);
       };
 
       // ─── Pull-to-refresh (installed PWAs disable Chrome's native version) ───
@@ -1505,7 +1555,7 @@
       };
 
       // ─── Render ───
-      if (loading && !signedIn) {
+      if ((loading && !signedIn) || (signedIn && !hasLoaded)) {
         return <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center" }}>
           <div className="spin" style={{ width:32, height:32, border:"3px solid "+S.dim, borderTopColor:S.accent, borderRadius:"50%" }} />
         </div>;
@@ -1521,6 +1571,7 @@
           <div style={{ fontSize:11, color:S.dim, marginTop:24, textAlign:"center", maxWidth:280, lineHeight:1.5 }}>
             Connect to your Drive to sync nutrition data. Only files this app creates are accessed.
           </div>
+          {connMsg && <div style={{ fontSize:11, color:S.accent, marginTop:14, textAlign:"center", maxWidth:300, lineHeight:1.5 }}>{connMsg}</div>}
         </div>;
       }
 
