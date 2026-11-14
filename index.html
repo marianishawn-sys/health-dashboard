@@ -47,7 +47,7 @@
     // see folders by name (only files the app itself created), so we pin the ID directly.
     const DRIVE_FOLDER_ID = "11i-0SWaBcn6ARiUKag8mvI9DRDxUcfyI";
     const CLAUDE_MODEL = "claude-sonnet-4-6";
-    const VERSION = "v7.40.0";
+    const VERSION = "v7.41.0";
 
     const TARGETS = {
       high: { cal: 2228, protein: 178, carbs: 247, fat: 59, fibre: 30 },
@@ -899,6 +899,10 @@
         }
         return w;
       }
+      if (!VOL.includes(base)) {                                           // package units: "2lb bag", "12 oz can", "1 kg bag"
+        const pk = u.match(/([\d.]+)\s*(lbs?|oz|kg)\b/);
+        if (pk && parseFloat(pk[1]) > 0) return parseFloat(pk[1]) * (pk[2] === "kg" ? 1000 : pk[2] === "oz" ? 28.35 : 453.6);
+      }
       if (["cup","cups","c"].includes(base)) return cupG;                 // incl. "cup chopped", "cup packed", "cup (8 fl oz)"
       if (["tbsp","tbs","tb","tbl","tablespoon","tablespoons"].includes(base)) return cupG / 16;
       if (["tsp","t","teaspoon","teaspoons"].includes(base)) return cupG / 48;
@@ -967,6 +971,9 @@
     // Sum a recipe's ingredient macros and divide by servings → per-serving macros.
     // Uses each row's explicit grams if present, else quantity × grams-per-unit.
     // Returns null if no ingredient has macros (so we don't store a bogus all-zero).
+    const pluralizeUnit = (w, n) => n === 1 ? w : (/s$/.test(w) ? w : w + "s");
+    const isPerGramRecipe = (r) => !!r && (/1\s*g\s*=\s*1\s*serv/i.test(r.name || "") || /^1\s*g\b/i.test(r.servingLabel || ""));
+
     const computePerServing = (rows, servings, ingredients) => {
       const n = Math.max(1, Number(servings) || 1);
       const tot = { cal:0, protein:0, carbs:0, fat:0, fibre:0 };
@@ -1429,7 +1436,8 @@
         const n = Math.max(0.01, Number(servings) || 1);
         const entry = {
           id: uid("log"), name: recipe.name, brand: recipe.servingLabel || "", recipeId: recipe.id,
-          grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings",
+          ...(isPerGramRecipe(recipe) ? { grams: round(n, 1), displayQty: round(n, 1), displayUnit: "g" }
+                                      : { grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings" }),
           cal: round((ps.cal||0)*n), protein: round((ps.protein||0)*n,1), carbs: round((ps.carbs||0)*n,1),
           fat: round((ps.fat||0)*n,1), fibre: round((ps.fibre||0)*n,1),
           source: "recipe", ts: new Date().toISOString(),
@@ -2071,16 +2079,52 @@
         };
       }, [data.ingredients, data.foods, data.pantry, query]);
 
+      const recentItems = useMemo(() => {
+        if (query.trim()) return [];
+        const d0 = new Date(Date.now() - 5 * 86400000);
+        const cut = d0.getFullYear() + "-" + String(d0.getMonth() + 1).padStart(2, "0") + "-" + String(d0.getDate()).padStart(2, "0");
+        const foodsById = new Map(data.foods.map(f => [f.id, f]));
+        const recById = new Map((data.recipes || []).map(r => [r.id, r]));
+        const ingById = new Map((data.ingredients || []).map(i => [i.id, i]));
+        const same = [], other = [];
+        Object.entries(data.logs || {}).forEach(([date, day]) => {
+          if (date < cut) return;
+          ["breakfast", "lunch", "dinner", "snacks"].forEach(m => (day[m] || []).forEach(e =>
+            (m === slot ? same : other).push({ e, t: Date.parse(e.ts) || Date.parse(date + "T12:00:00") || 0 })));
+        });
+        const seen = new Set(), out = [];
+        const add = ({ e }) => {
+          if (e.recipeId) {
+            const r = recById.get(e.recipeId); const k = "r:" + e.recipeId;
+            if (r && r.perServing && !seen.has(k)) { seen.add(k); out.push({ key: k, recipe: r }); }
+            return;
+          }
+          if (!e.foodId) return;
+          let f = foodsById.get(e.foodId) || foodsById.get("ing_" + e.foodId);
+          const ing = !f && ingById.get(e.foodId);              // logged straight from the Pantry tab
+          if (ing && ing.per100g && ing.per100g.cal != null) f = { id: "ing_" + ing.id, pantryItemId: ing.id, name: ing.name, brand: "",
+            per100g: ing.per100g, servingG: ing.servingG, servingUnit: ing.servingUnit,
+            refPortion: ing.servingG ? { grams: ing.servingG, label: "1 " + (ing.servingUnit || "serving") + " (" + ing.servingG + "g)" } : { grams: 100, label: "100g" },
+            category: "pantry", source: "pantry", useCount: 0 };
+          if (f && !seen.has("f:" + f.id)) { seen.add("f:" + f.id); out.push({ key: "f:" + f.id, food: f }); }
+        };
+        same.sort((a, b) => b.t - a.t).forEach(add);
+        other.sort((a, b) => b.t - a.t).forEach(add);
+        return out;
+      }, [data.logs, data.foods, data.recipes, data.ingredients, slot, query]);
+      const recentFoodIds = useMemo(() => new Set(recentItems.filter(x => x.food).map(x => x.food.id)), [recentItems]);
+
       const results = useMemo(() => {
         const now = Date.now();
         return data.foods
+          .filter(f => !recentFoodIds.has(f.id))                                   // already at the top (recent)
           .filter(f => !pantryNameSet.has((f.name || "").trim().toLowerCase()))  // already shown in the pantry section
           .map(f => ({ food: f, score: scoreFood(f, query, now) }))
           .filter(x => x.score >= 0)
           .sort((a, b) => b.score - a.score)
           .slice(0, 60)
           .map(x => x.food);
-      }, [data.foods, query, pantryNameSet]);
+      }, [data.foods, query, pantryNameSet, recentFoodIds]);
 
       const recipeMatches = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -2090,6 +2134,43 @@
           .slice(0, 12);
       }, [data.recipes, query]);
 
+      const foodRow = (f) => (
+                    <div key={f.id} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                      <div onClick={() => pickFood(f)} style={{ flex:1, minWidth:0, background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {f.name}
+                            {f.brand && <span style={{ color:S.dim, marginLeft:6, fontSize:11 }}>· {f.brand}</span>}
+                          </div>
+                          <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                            per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
+                          </div>
+                        </div>
+                        {f.useCount > 0 && (
+                          <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
+                        )}
+                      </div>
+                      <button onClick={() => { if (onAddToPantry && !pantryAdded.has(f.id)) { onAddToPantry([f]); setPantryAdded(prev => new Set(prev).add(f.id)); } }}
+                        title="Add to pantry"
+                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:`1px solid ${pantryAdded.has(f.id)?S.green:S.border}`, color: pantryAdded.has(f.id)?S.green:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>
+                        {pantryAdded.has(f.id) ? "✓" : "📦"}
+                      </button>
+                      <button onClick={() => { if (onDeleteFood && window.confirm(`Remove "${f.name}" from search? This deletes it from your food library.`)) onDeleteFood(f); }}
+                        title="Remove from search"
+                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:"1px solid "+S.border, color:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>🗑</button>
+                    </div>
+      );
+      const recipeRow = (r) => (
+                    <button key={r.id} onClick={() => pickRecipe(r)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
+                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
+                          per serving: {round(r.perServing.cal)}kcal · {round(r.perServing.protein,1)}P · {round(r.perServing.carbs,1)}C · {round(r.perServing.fat,1)}F
+                        </div>
+                      </div>
+                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🍳 RECIPE</div>
+                    </button>
+      );
       const pickRecipe = (r) => { setSelectedRecipe(r); setMode("recipe"); };
 
       const pickFood = (f) => {
@@ -2262,7 +2343,7 @@
                 </div>
 
                 <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"4px 4px 8px" }}>
-                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {pantryFoods.length + recipeMatches.length + results.length + libraryFoods.length}
+                  {query ? "MATCHES" : "RECENT & FREQUENT"} · {recentItems.length + pantryFoods.length + recipeMatches.length + results.length + libraryFoods.length}
                 </div>
 
                 <div style={{ flex:1, overflowY:"auto", paddingBottom:14 }}>
@@ -2293,46 +2374,14 @@
                     </button>
                   ))}
 
+                  {/* 0. Before searching: what you've logged in the last 5 days (this meal first) */}
+                  {recentItems.map(it => it.recipe ? recipeRow(it.recipe) : foodRow(it.food))}
+
                   {/* 2. Previously logged foods (deletable) */}
-                  {results.map(f => (
-                    <div key={f.id} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
-                      <div onClick={() => pickFood(f)} style={{ flex:1, minWidth:0, background:S.panel, border:"1px solid "+S.border, borderRadius:10, padding:"10px 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                            {f.name}
-                            {f.brand && <span style={{ color:S.dim, marginLeft:6, fontSize:11 }}>· {f.brand}</span>}
-                          </div>
-                          <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
-                            per 100g: {round(f.per100g.cal)}kcal · {round(f.per100g.protein,1)}P · {round(f.per100g.carbs,1)}C · {round(f.per100g.fat,1)}F
-                          </div>
-                        </div>
-                        {f.useCount > 0 && (
-                          <div style={{ fontSize:9, color:S.accentDim, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap" }}>×{f.useCount}</div>
-                        )}
-                      </div>
-                      <button onClick={() => { if (onAddToPantry && !pantryAdded.has(f.id)) { onAddToPantry([f]); setPantryAdded(prev => new Set(prev).add(f.id)); } }}
-                        title="Add to pantry"
-                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:`1px solid ${pantryAdded.has(f.id)?S.green:S.border}`, color: pantryAdded.has(f.id)?S.green:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>
-                        {pantryAdded.has(f.id) ? "✓" : "📦"}
-                      </button>
-                      <button onClick={() => { if (onDeleteFood && window.confirm(`Remove "${f.name}" from search? This deletes it from your food library.`)) onDeleteFood(f); }}
-                        title="Remove from search"
-                        style={{ flexShrink:0, width:38, height:38, borderRadius:8, background:"none", border:"1px solid "+S.border, color:S.dimmer, fontSize:15, cursor:"pointer", lineHeight:1 }}>🗑</button>
-                    </div>
-                  ))}
+                  {results.map(f => foodRow(f))}
 
                   {/* 3. Recipes (loggable by servings) */}
-                  {recipeMatches.map(r => (
-                    <button key={r.id} onClick={() => pickRecipe(r)} style={{ width:"100%", background:S.panel, border:`1px solid ${S.accent}44`, borderRadius:10, padding:"10px 12px", marginBottom:6, textAlign:"left", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:13, color:S.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.name}</div>
-                        <div style={{ fontSize:10, color:S.dim, marginTop:2, fontFamily:"'DM Mono',monospace" }}>
-                          per serving: {round(r.perServing.cal)}kcal · {round(r.perServing.protein,1)}P · {round(r.perServing.carbs,1)}C · {round(r.perServing.fat,1)}F
-                        </div>
-                      </div>
-                      <div style={{ fontSize:9, color:S.accent, whiteSpace:"nowrap", letterSpacing:0.5 }}>🍳 RECIPE</div>
-                    </button>
-                  ))}
+                  {recipeMatches.map(r => recipeRow(r))}
 
                   {/* 4. Other ingredients you don't stock (recipe ingredients etc.) */}
                   {libraryFoods.map(f => (
@@ -2351,7 +2400,7 @@
                   {query.trim().length >= 2 && (
                     <div style={{ marginTop:6, marginBottom:12 }}>
                       <div style={{ fontSize:9, letterSpacing:2, color:S.dim, padding:"8px 4px" }}>
-                        {(results.length + pantryFoods.length + libraryFoods.length + pantryStubs.length + recipeMatches.length) === 0
+                        {(recentItems.length + results.length + pantryFoods.length + libraryFoods.length + pantryStubs.length + recipeMatches.length) === 0
                           ? "NOT FOUND — GET IT ONLINE" : "NOT WHAT YOU WANTED? GET IT ONLINE"}
                       </div>
                       <div style={{ display:"flex", gap:8, marginBottom:8 }}>
@@ -2409,13 +2458,29 @@
 
     // ───────────────────── EDIT ENTRY MODAL ─────────────────────
     function EditEntryModal({ entry, slot, data, onSave, onDelete, onClose }) {
-      const real = data.foods.find(f => f.id === entry.foodId);
+      // Recipe entries store servings (grams 0), so they're edited from the recipe's
+      // per-serving macros: per-gram recipes in grams, others in servings.
+      const isRecipe = !!entry.recipeId;
+      const recipe = isRecipe ? (data.recipes || []).find(r => r.id === entry.recipeId) : null;
+      const perGramRec = isRecipe && (recipe ? isPerGramRecipe(recipe) : /1\s*g\s*=\s*1\s*serv/i.test(entry.name || ""));
+      const recQty = entry.displayQty > 0 ? entry.displayQty : (entry.grams > 0 ? entry.grams : 1);
+      const recPS = recipe && recipe.perServing ? recipe.perServing : {
+        cal: (entry.cal || 0) / recQty, protein: (entry.protein || 0) / recQty, carbs: (entry.carbs || 0) / recQty,
+        fat: (entry.fat || 0) / recQty, fibre: (entry.fibre || 0) / recQty };
+      const recUnit = (recipe && recipe.servingLabel && !perGramRec ? recipe.servingLabel.replace(/^1\s+/, "") : "") || "serving";
+      const real = isRecipe ? null : data.foods.find(f => f.id === entry.foodId);
       const g0 = entry.grams || 100;
       // "count" = logged by a serving/count unit (egg, serving…), NOT a weight/volume unit.
       const wasCount = entry.displayUnit && !WEIGHT_UNITS.includes(entry.displayUnit);
       // Reuse PortionAdjust (serving/weight toggle + clearable inputs). If the library food
       // is gone, reconstruct one from the entry's stored macros so editing still works.
-      const food = real ? { ...real } : {
+      const food = isRecipe ? {
+        id: "recipe_" + entry.recipeId, name: entry.name, brand: "",
+        per100g: perGramRec   // per-gram: macros per 100 g; per-serving: 1 serving is modelled as 100 "g"
+          ? { cal: recPS.cal * 100, protein: recPS.protein * 100, carbs: recPS.carbs * 100, fat: recPS.fat * 100, fibre: (recPS.fibre || 0) * 100 }
+          : { cal: recPS.cal, protein: recPS.protein, carbs: recPS.carbs, fat: recPS.fat, fibre: recPS.fibre || 0 },
+        ...(perGramRec ? {} : { servingG: 100, servingUnit: recUnit }),
+      } : real ? { ...real } : {
         id: entry.foodId, name: entry.name, brand: entry.brand || "",
         per100g: {
           cal: round((entry.cal || 0) / g0 * 100), protein: round((entry.protein || 0) / g0 * 100, 1),
@@ -2425,11 +2490,13 @@
       };
       // Guarantee serving info for a serving-logged entry so the BY-SERVING toggle is
       // available on edit even if the library food never stored a servingG.
-      if (wasCount) {
+      if (wasCount && !isRecipe) {
         if (!(food.servingG > 0)) food.servingG = entry.displayQty > 0 ? round(g0 / entry.displayQty) : g0;
         if (!food.servingUnit) food.servingUnit = entry.displayUnit;
       }
-      const initial = wasCount
+      const initial = isRecipe
+        ? (perGramRec ? { mode: "grams", grams: recQty, unit: "g" } : { mode: "serving", servings: recQty, grams: recQty * 100 })
+        : wasCount
         ? { mode: "serving", servings: entry.displayQty || round(g0 / (food.servingG || 100), 2), grams: g0 }
         : { mode: "grams", grams: g0, unit: WEIGHT_UNITS.includes(entry.displayUnit) ? entry.displayUnit : "g" };
 
@@ -2437,6 +2504,16 @@
 
       const doSave = (g, notes, opts) => {
         const m = scaleMacros(food.per100g, g);
+        if (isRecipe) {
+          const qty = perGramRec ? (opts.displayUnit ? opts.displayQty : round(g, 1)) : round(g / 100, 2);
+          onSave(slot, entry.id, {
+            grams: perGramRec ? g : 0, displayQty: qty,
+            displayUnit: perGramRec ? (opts.displayUnit || "g") : pluralizeUnit(recUnit, qty),
+            notes: notes || undefined, ...m, ts: entry.ts,
+          }, undefined, null, targetSlot);
+          onClose();
+          return;
+        }
         onSave(slot, entry.id, {
           grams: g,
           ...(opts.displayUnit ? { displayQty: opts.displayQty, displayUnit: opts.displayUnit } : { displayQty: undefined, displayUnit: undefined }),
@@ -2467,7 +2544,7 @@
               )}
             </div>
             <PortionAdjust
-              food={food} slot={targetSlot} initial={initial} title="EDIT"
+              food={food} slot={targetSlot} initial={initial} title="EDIT" lockServing={isRecipe && !perGramRec}
               logLabel="SAVE ·" initialNotes={entry.notes || ""}
               onCancel={onClose} onLog={doSave}
               onDelete={() => onDelete(slot, entry.id)}
@@ -2478,7 +2555,7 @@
     }
 
     // ───────────────────── PORTION ADJUST ─────────────────────
-    function PortionAdjust({ food, slot, onCancel, onLog, initial, logLabel, onDelete, initialNotes, title }) {
+    function PortionAdjust({ food, slot, onCancel, onLog, initial, logLabel, onDelete, initialNotes, title, lockServing }) {
       const pluralize = (w, n) => n === 1 ? w : (w === "potato" ? "potatoes" : w + "s");
       // Derive a clean unit name from a refPortion label like "1 large egg" → "large egg"
       const deriveUnit = (label) => {
@@ -2493,15 +2570,30 @@
       const baseServG = food.servingG || (food.refPortion && food.refPortion.grams) || 100;
       const baseUnit  = food.servingUnit || deriveUnit(food.refPortion && food.refPortion.label);
       const canServe  = !!(food.servingG || (food.refPortion && food.refPortion.grams));
+      // Native unit: the unit you last used, else the label's own unit (oz, cup, tbsp…),
+      // else ounces for liquids, else grams.
+      const MEAS = { oz:"oz", ounce:"oz", ounces:"oz", "fl oz":"oz", "fl. oz":"oz", cup:"cup", cups:"cup", tbsp:"tbsp", tablespoon:"tbsp",
+                     tablespoons:"tbsp", tsp:"tsp", teaspoon:"tsp", teaspoons:"tsp", ml:"ml", lb:"lb" };
+      const labelTxt  = (food.refPortion && food.refPortion.label) || "";
+      const labelMeas = MEAS[(food.servingUnit || "").toLowerCase().trim()]
+        || (labelTxt.match(/\b(fl\.?\s*oz|oz|cups?|tbsp|tsp|ml)\b/i) || [])[1] && MEAS[(labelTxt.match(/\b(fl\.?\s*oz|oz|cups?|tbsp|tsp|ml)\b/i) || [])[1].toLowerCase()];
+      const isLiquid  = /\b(broth|stock|milk|juice|water|creamer|coffee|tea|kombucha|soda|beer|wine|smoothie|kefir|lemonade)\b/i.test(food.name || "")
+                        && !/chocolate|powder|\bbar\b|chips?\b/i.test(food.name || "");
+      const nativeUnit = labelMeas || (isLiquid ? "oz" : null);
       const initUnit  = (initial && initial.unit && WEIGHT_UNITS.includes(initial.unit)) ? initial.unit
-        : (food.preferredUnit && WEIGHT_UNITS.includes(food.preferredUnit) ? food.preferredUnit : "g");
+        : (food.preferredUnit && WEIGHT_UNITS.includes(food.preferredUnit) ? food.preferredUnit
+        : (nativeUnit && WEIGHT_UNITS.includes(nativeUnit) ? nativeUnit : "g"));
 
       // Default to count mode only when the food has a real named unit (egg, stick…), not
       // generic "serving". `initial` (edit flow) pre-fills the entry's current portion.
-      const [mode, setMode]   = useState((initial && initial.mode) || (canServe && baseUnit !== "serving" ? "serving" : "grams"));
+      // A label unit that's a measurement ("12 oz", "1 cup") is shown as an amount, not as "1 oz" servings.
+      const [mode, setMode]   = useState((initial && initial.mode) || (canServe && baseUnit !== "serving" && !MEAS[(baseUnit || "").toLowerCase()] ? "serving" : "grams"));
       const [unit, setUnit]   = useState(initUnit);
       const [servingsStr, setServingsStr] = useState(initial && initial.servings != null ? String(round(initial.servings, 2)) : "1");
-      const [gramsStr, setGramsStr]       = useState(initial && initial.grams != null ? String(gramsToUnit(initial.grams, initUnit)) : String(baseServG));
+      // Default amount in the native unit; snap to the nearest ¼ when within 5% (label "1 cup (250g)" → 1 cup, not 1.04).
+      const initAmt = round(gramsToUnit(initial && initial.grams != null ? initial.grams : baseServG, initUnit), 2);
+      const snapAmt = Math.round(initAmt * 4) / 4;
+      const [gramsStr, setGramsStr]       = useState(String(!initial && initUnit !== "g" && snapAmt > 0 && Math.abs(snapAmt - initAmt) / initAmt < 0.05 ? snapAmt : initAmt));
       const [servG, setServG]   = useState(baseServG);
       const [servUnit, setServUnit] = useState(baseUnit);
       const [editServ, setEditServ] = useState(false);
@@ -2568,7 +2660,7 @@
           {/* Portion */}
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
             {/* mode toggle */}
-            {canServe && (
+            {canServe && !lockServing && (
               <div style={{ display:"flex", gap:6, marginBottom:12 }}>
                 <button onClick={() => setMode("serving")} style={toggle(mode==="serving")}>BY {pluralize(servUnit,2).toUpperCase()}</button>
                 <button onClick={() => setMode("grams")} style={toggle(mode==="grams")}>BY WEIGHT</button>
@@ -2593,7 +2685,7 @@
                     </button>
                   ))}
                 </div>
-                {editServ ? (
+                {lockServing ? null : editServ ? (
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <span style={{ fontSize:11, color:S.dim }}>1</span>
                     <input value={servUnitStr} onChange={e=>setServUnitStr(e.target.value)} placeholder="egg, stick…"
@@ -2693,11 +2785,13 @@
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
             <div style={{ fontSize:15, fontWeight:500, color:S.text, marginBottom:4 }}>{recipe.name}</div>
             <div style={{ fontSize:10, color:S.dim, fontFamily:"'DM Mono',monospace" }}>
-              per serving: {round(ps.cal)} kcal · {round(ps.protein,1)}P · {round(ps.carbs,1)}C · {round(ps.fat,1)}F <span style={{color:S.dimmer}}>· makes {recipe.servings||1}</span>
+              {isPerGramRecipe(recipe)
+                ? <>per 100 g: {round(ps.cal*100)} kcal · {round(ps.protein*100,1)}P · {round(ps.carbs*100,1)}C · {round(ps.fat*100,1)}F <span style={{color:S.dimmer}}>· batch {recipe.servings||1} g</span></>
+                : <>per serving: {round(ps.cal)} kcal · {round(ps.protein,1)}P · {round(ps.carbs,1)}C · {round(ps.fat,1)}F <span style={{color:S.dimmer}}>· makes {recipe.servings||1}</span></>}
             </div>
           </div>
           <div style={{ background:S.panel, border:"1px solid "+S.border, borderRadius:12, padding:14, marginBottom:14 }}>
-            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>HOW MANY SERVINGS?</div>
+            <div style={{ fontSize:10, letterSpacing:2, color:S.dim, marginBottom:10 }}>{isPerGramRecipe(recipe) ? "HOW MANY GRAMS?" : "HOW MANY SERVINGS?"}</div>
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
               <button onClick={() => step(-1)} style={stepBtn}>−1</button>
               <input type="text" inputMode="decimal" value={servStr} onChange={e => setServStr(e.target.value)} onBlur={() => { if (!(parseFloat(servStr) > 0)) setServStr("1"); }} style={bigInput} />
@@ -3320,7 +3414,13 @@
       }, [ingSearch, ingredients, rows]);
 
       const addIngredient = (ing) => {
-        setRows(prev => [...prev, { itemId: ing.id, quantity: 100, unit: ing.defaultUnit || "g" }]);
+        // Start in the ingredient's own unit: label measures ("12 oz", "1 cup"), counts ("1 clove"), else 100 g.
+        const su = (ing.servingUnit || "").toLowerCase().trim();
+        const meas = { oz:"oz", ounce:"oz", ounces:"oz", cup:"cup", cups:"cup", tbsp:"tbsp", tablespoon:"tbsp", tsp:"tsp", teaspoon:"tsp", ml:"ml" }[su];
+        const row = ing.servingG > 0 && meas ? { quantity: round(ing.servingG / gramsPerUnit(meas, ing), 2), unit: meas }
+          : ing.servingG > 0 && su && su !== "serving" ? { quantity: 1, unit: su }
+          : { quantity: 100, unit: ing.defaultUnit && ing.defaultUnit !== "portions" ? ing.defaultUnit : "g" };
+        setRows(prev => [...prev, { itemId: ing.id, ...row }]);
         setIngSearch("");
       };
       // Create a new registry ingredient from the typed text, then add it as a row.
@@ -3376,7 +3476,7 @@
         if (!name.trim() || rows.length === 0) return;
         const perServing = computePerServing(rows, servings, ingredients);
         const { _estimated, ...base } = recipe;
-        onSave({ ...base, name: name.trim(), servings: Math.max(1, Number(servings) || 2), ingredients: rows, instructions, ...(perServing ? { perServing } : {}) });
+        onSave({ ...base, name: name.trim(), servings: Math.max(0.25, Number(servings) || 2), ingredients: rows.map(r => ({ ...r, quantity: Number(r.quantity) || 0 })), instructions, ...(perServing ? { perServing } : {}) });
       };
 
       const panelStyle = { background:S.panel, border:"1px solid "+S.border, borderRadius:10 };
@@ -3404,7 +3504,7 @@
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
               <span style={{ fontSize:12, color:S.dim, flex:1 }}>Servings it makes</span>
               <button onClick={() => setServings(s => Math.max(1, (Number(s)||1) - 1))} style={stepBtn}>−</button>
-              <input type="text" inputMode="numeric" value={servings}
+              <input type="text" inputMode="decimal" value={servings}
                 onChange={e => setServings(e.target.value)}
                 onBlur={() => { if (!(Number(servings) > 0)) setServings(1); }}
                 style={{ ...inputStyle, width:56, textAlign:"center", fontSize:16, fontWeight:600 }} />
@@ -3432,7 +3532,7 @@
                   <div style={{ display:"flex", alignItems:"center", gap:6 }}>
                     <span style={{ flex:1, fontSize:13, color:S.text, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{ing?.name || row.itemId}</span>
                     <input type="text" inputMode="decimal" value={row.quantity}
-                      onChange={e => updateRow(idx, "quantity", parseFloat(e.target.value) || 0)}
+                      onChange={e => updateRow(idx, "quantity", e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
                       style={{ width:54, background:S.panel2, border:"1px solid "+S.border, borderRadius:7, padding:"6px 6px", color:S.text, fontSize:13, outline:"none", textAlign:"right" }} />
                     <input type="text" value={row.unit}
                       onChange={e => updateRow(idx, "unit", e.target.value)}
@@ -3563,6 +3663,7 @@
       const [diaryMeal, setDiaryMeal]   = useState("dinner");
       const [diaryServings, setDiaryServings] = useState("1");
       const [diaryMsg, setDiaryMsg]     = useState("");
+      const [diaryAdded, setDiaryAdded] = useState(null);   // recipe id just added → button shows ✓ briefly
       const csvFileRef = useRef(null);
       const photoRef   = useRef(null);
       const galleryRef = useRef(null);
@@ -3578,7 +3679,8 @@
         if (n <= 0) return;
         const entry = {
           id: uid("log"), name: recipe.name, brand: recipe.servingLabel || "", recipeId: recipe.id,
-          grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings",
+          ...(isPerGramRecipe(recipe) ? { grams: round(n, 1), displayQty: round(n, 1), displayUnit: "g" }
+                                      : { grams: 0, displayQty: round(n, 2), displayUnit: n === 1 ? "serving" : "servings" }),
           cal: round((ps.cal||0)*n), protein: round((ps.protein||0)*n,1), carbs: round((ps.carbs||0)*n,1),
           fat: round((ps.fat||0)*n,1), fibre: round((ps.fibre||0)*n,1),
           source: "recipe", ts: new Date().toISOString(),
@@ -3587,13 +3689,19 @@
         const day  = logs[diaryDate] || {};
         const meal = [...(day[diaryMeal] || []), entry];
         setData({ ...data, logs: { ...logs, [diaryDate]: { ...day, [diaryMeal]: meal } } }, true);
-        setDiaryMsg(`✓ ${round(n,2)} ${n===1?"serving":"servings"} of ${recipe.name} → ${diaryMeal}`);
+        setDiaryMsg(`✓ ${round(n,2)} ${isPerGramRecipe(recipe) ? "g" : n===1?"serving":"servings"} of ${recipe.name} → ${diaryMeal}`);
+        setDiaryAdded(recipe.id);
       };
       useEffect(() => {
         if (!diaryMsg) return;
         const t = setTimeout(() => setDiaryMsg(""), 5000);
         return () => clearTimeout(t);
       }, [diaryMsg]);
+      useEffect(() => {
+        if (!diaryAdded) return;
+        const t = setTimeout(() => setDiaryAdded(null), 2500);
+        return () => clearTimeout(t);
+      }, [diaryAdded]);
 
       // ── MFP CSV import ──
       const importCSV = async (file) => {
@@ -4209,8 +4317,10 @@ Return ONLY this JSON:
                           </div>
                         ); })()}
                         <button onClick={() => addRecipeToDiary(recipe)}
-                          style={{ width:"100%", background:S.green, color:"#0a0c0f", border:"none", borderRadius:8, padding:"11px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer" }}>
-                          ＋ ADD TO DIARY
+                          style={{ width:"100%", background: diaryAdded === recipe.id ? S.panel2 : S.green, color: diaryAdded === recipe.id ? S.green : "#0a0c0f",
+                            border: "1px solid " + S.green, borderRadius:8, padding:"11px", fontSize:11, fontWeight:700, letterSpacing:1, cursor:"pointer",
+                            transform: diaryAdded === recipe.id ? "scale(0.97)" : "none", transition:"all 0.15s" }}>
+                          {diaryAdded === recipe.id ? "✓ ADDED TO " + diaryMeal.toUpperCase() : "＋ ADD TO DIARY"}
                         </button>
                       </div>
                     )}
@@ -4284,7 +4394,7 @@ Return ONLY this JSON:
       const removeMeal = (id) => setData({ ...data, mealPlan: mealPlan.filter(p => p.id !== id) });
 
       const updateServings = (id, val) => {
-        const n = Math.max(1, Number(val) || 1);
+        const n = Number(val) > 0 ? Math.max(0.25, Number(val)) : 1;
         setData({ ...data, mealPlan: mealPlan.map(p => p.id === id ? { ...p, servings: n } : p) });
       };
 
@@ -4381,8 +4491,8 @@ Return ONLY this JSON:
                           background:S.bg, border:"1px solid "+S.border, borderRadius:8, padding:"8px 10px" }}>
                           <span style={{ flex:1, fontSize:13, color:S.text }}>{rec?.name || "Unknown recipe"}</span>
                           <span style={{ fontSize:11, color:S.dimmer }}>srv</span>
-                          <input type="number" min="1" value={p.servings}
-                            onChange={e => updateServings(p.id, e.target.value)}
+                          <input type="text" inputMode="decimal" key={p.id + ":" + p.servings} defaultValue={p.servings}
+                            onBlur={e => updateServings(p.id, e.target.value)}
                             style={{ ...panelInput, width:44, textAlign:"center", padding:"4px 6px" }} />
                           <button onClick={() => removeMeal(p.id)}
                             style={{ background:"none", border:"none", color:S.dimmer,
@@ -4590,7 +4700,7 @@ Return ONLY this JSON:
               onChange={e => setNewItem(e.target.value)}
               onKeyDown={e => e.key === "Enter" && addItem()}
               style={{ ...inputStyle, flex:1 }} />
-            <input type="number" placeholder="qty" value={newQty}
+            <input type="number" inputMode="decimal" placeholder="qty" value={newQty}
               onChange={e => setNewQty(e.target.value)}
               style={{ ...inputStyle, width:52, padding:"11px 8px", fontSize:13 }} />
             <input type="text" placeholder="unit" value={newUnit}
