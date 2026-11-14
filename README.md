@@ -1,4 +1,4 @@
-# Nutrition Concierge — v7.40.0
+# Nutrition Concierge — v7.41.0
 
 Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebuilds in ~30 seconds.
 
@@ -44,6 +44,13 @@ Single-file React PWA. No build step. Edit `index.html`, push, GitHub Pages rebu
   2. Subtracts pantry count-tracked stock (same unit family only).
   3. State-tracked items: `"have"` = sufficient; `"low"`/`"out"` = left in NEEDS RESTOCKING.
   4. Replaces all previous `source:"plan"` grocery entries with fresh shortfall list.
+
+### v7.41.0 — Recipe entry editing, recent-first food list, native units, decimals
+- Tapping a logged recipe opens the right numbers (per-gram recipes edit in grams, others in servings). Per-gram recipes log as "542 g".
+- Before you search, the food list shows what you logged in the last 5 days — this meal first, then other meals — then everything else.
+- Portions open in the unit you last used, else the label unit (oz, cup, tbsp…), else ounces for liquids. New recipe rows start in the ingredient's own unit.
+- Decimal amounts work in recipe quantities, recipe servings and meal-plan servings. Package units like "2lb bag" convert correctly.
+- Recipes tab "Add to Diary" button shows ✓ ADDED.
 
 ### v7.40.0 — No more sign-in on every launch (private connector)
 - A small Apps Script web app in your own Google account ("Nutrition Concierge Connector") reads/writes only `dashboard-data.json` and the `coach-*.json` drop files, protected by a long secret key stored on each device. The connector link + key live in the data file (`connector`), so a device that signs in with Google once remembers it and never asks again.
